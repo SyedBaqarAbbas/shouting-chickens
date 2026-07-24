@@ -26,6 +26,9 @@ export class ScriptedInputSource implements InputSource {
   private startedAtMs: number | null = null;
   private cursor = -1;
   private current: ControlIntent = { ...NEUTRAL_CONTROL_INTENT };
+  private simulationCursor = -1;
+  private simulationLift = 0;
+  private lastSimulationSampleMs = 0;
 
   constructor(
     private readonly clock: Clock,
@@ -48,6 +51,7 @@ export class ScriptedInputSource implements InputSource {
       ...NEUTRAL_CONTROL_INTENT,
       atMs: this.startedAtMs,
     };
+    this.resetSimulationTime();
   }
 
   latest() {
@@ -77,10 +81,49 @@ export class ScriptedInputSource implements InputSource {
     return intent;
   }
 
+  sampleAt(elapsedMs: number) {
+    if (this.startedAtMs === null) {
+      return { ...NEUTRAL_CONTROL_INTENT };
+    }
+
+    if (!Number.isFinite(elapsedMs) || elapsedMs < 0 || elapsedMs < this.lastSimulationSampleMs) {
+      throw new RangeError("Simulation input samples must move forward in finite time");
+    }
+
+    let jumpPressed = false;
+
+    while (this.simulationCursor + 1 < this.frames.length) {
+      const nextFrame = this.frames[this.simulationCursor + 1];
+
+      if (!nextFrame || nextFrame.atMs > elapsedMs) {
+        break;
+      }
+
+      this.simulationCursor += 1;
+      this.simulationLift = nextFrame.lift;
+      jumpPressed ||= nextFrame.jumpPressed;
+    }
+
+    this.lastSimulationSampleMs = elapsedMs;
+
+    return {
+      atMs: this.startedAtMs + elapsedMs,
+      jumpPressed,
+      lift: this.simulationLift,
+    };
+  }
+
+  resetSimulationTime() {
+    this.simulationCursor = -1;
+    this.simulationLift = 0;
+    this.lastSimulationSampleMs = 0;
+  }
+
   stop() {
     this.startedAtMs = null;
     this.cursor = -1;
     this.current = { ...NEUTRAL_CONTROL_INTENT };
+    this.resetSimulationTime();
   }
 }
 

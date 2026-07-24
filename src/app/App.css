@@ -54,8 +54,9 @@ textarea {
   position: relative;
   display: grid;
   width: min(100%, 432px);
-  height: min(calc(100dvh - 24px), 768px);
-  min-height: 560px;
+  height: auto;
+  max-height: min(calc(100dvh - 24px), 768px);
+  aspect-ratio: 9 / 16;
   overflow: hidden;
   border: 1px solid rgb(255 255 255 / 14%);
   border-radius: 30px;
@@ -134,7 +135,7 @@ textarea {
 
 .game-heading h1 {
   margin: 4px 0 7px;
-  font-size: clamp(2rem, 8vw, 3rem);
+  font-size: clamp(2rem, 8vw, 2.35rem);
   letter-spacing: -0.045em;
   line-height: 0.95;
 }
@@ -157,12 +158,70 @@ textarea {
 
 .game-surface {
   z-index: 1;
+  overflow: hidden;
+  touch-action: none;
+}
+
+.game-surface[data-orientation="landscape"] {
+  z-index: 10;
 }
 
 .game-surface canvas {
+  position: absolute;
+  inset: 0;
   display: block;
   width: 100% !important;
   height: 100% !important;
+  margin: 0 !important;
+}
+
+.game-surface:focus-visible {
+  outline: 3px solid #f5d567;
+  outline-offset: -5px;
+}
+
+.rotate-prompt,
+.game-mount-error {
+  position: absolute;
+  z-index: 30;
+  inset: 0;
+  margin: 0;
+  place-content: center;
+  place-items: center;
+  padding: 34px;
+  color: #f8fbff;
+  background: rgb(3 8 16 / 96%);
+  text-align: center;
+}
+
+.rotate-prompt:not([hidden]) {
+  display: grid;
+}
+
+.rotate-prompt[hidden] {
+  display: none;
+}
+
+.rotate-prompt span {
+  font-size: 3rem;
+  line-height: 1;
+}
+
+.rotate-prompt strong {
+  margin-top: 14px;
+  font-size: 1.08rem;
+}
+
+.rotate-prompt small {
+  max-width: 260px;
+  margin-top: 7px;
+  color: rgb(235 244 255 / 72%);
+  line-height: 1.45;
+}
+
+.game-mount-error {
+  display: grid;
+  font-weight: 700;
 }
 
 .bootstrap-note {
@@ -195,7 +254,8 @@ textarea {
 
 @media (max-height: 620px) {
   .game-phone {
-    min-height: calc(100dvh - 24px);
+    width: auto;
+    height: calc(100dvh - 24px);
   }
 
   .game-heading {
@@ -203,20 +263,10 @@ textarea {
   }
 }
 
-@media (orientation: landscape) and (max-height: 540px) {
-  .game-phone::after {
-    position: absolute;
-    z-index: 5;
-    display: grid;
-    inset: 0;
-    padding: 32px;
-    place-items: center;
-    color: #f8fbff;
-    background: rgb(3 8 16 / 94%);
-    content: "Rotate your device to play";
-    font-size: 1.1rem;
-    font-weight: 750;
-    text-align: center;
+@media (orientation: landscape) {
+  .game-phone {
+    width: auto;
+    height: min(calc(100dvh - 24px), 768px);
   }
 }
 

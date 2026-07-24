@@ -41,6 +41,30 @@ describe("ScriptedInputSource", () => {
     await input.start();
     expect(input.latest()).toEqual({ atMs: 100, jumpPressed: false, lift: 0 });
   });
+
+  it("queues a short scripted edge between deterministic simulation samples", async () => {
+    const clock = new ManualClock(500);
+    const input = new ScriptedInputSource(clock, [
+      { atMs: 90, jumpPressed: true, lift: 0.8 },
+      { atMs: 105, jumpPressed: false, lift: 0 },
+    ]);
+    await input.start();
+
+    expect(input.sampleAt(80)).toEqual({
+      atMs: 580,
+      jumpPressed: false,
+      lift: 0,
+    });
+    expect(input.sampleAt(120)).toEqual({
+      atMs: 620,
+      jumpPressed: true,
+      lift: 0,
+    });
+    expect(input.sampleAt(140).jumpPressed).toBe(false);
+
+    input.resetSimulationTime();
+    expect(input.sampleAt(120).jumpPressed).toBe(true);
+  });
 });
 
 describe("MutableInputSource", () => {
