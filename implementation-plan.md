@@ -19,18 +19,18 @@ Their people, TikTok branding, watermark, and artwork are not product assets.
 
 ## Locked product decisions
 
-| Decision | Selected direction |
-| --- | --- |
-| Control model | Rising voice pulse triggers a jump; sustained sound adds lift |
-| Horizontal movement | Fixed-speed auto-run; voice affects only vertical movement |
-| Primary platform | Mobile portrait, with a centered desktop presentation |
-| Camera | Optional mirrored front-camera background |
-| Fallback input | Keyboard and touch use the same gameplay intent interface |
-| MVP score | Elapsed survival time |
-| Full product | Installable local-first PWA with local scores and replay export |
-| Backend | None |
-| Media privacy | Raw audio and video remain on-device |
-| Artwork | Original assets only |
+| Decision            | Selected direction                                              |
+| ------------------- | --------------------------------------------------------------- |
+| Control model       | Rising voice pulse triggers a jump; sustained sound adds lift   |
+| Horizontal movement | Fixed-speed auto-run; voice affects only vertical movement      |
+| Primary platform    | Mobile portrait, with a centered desktop presentation           |
+| Camera              | Optional mirrored front-camera background                       |
+| Fallback input      | Keyboard and touch use the same gameplay intent interface       |
+| MVP score           | Elapsed survival time                                           |
+| Full product        | Installable local-first PWA with local scores and replay export |
+| Backend             | None                                                            |
+| Media privacy       | Raw audio and video remain on-device                            |
+| Artwork             | Original assets only                                            |
 
 Explicitly out of scope for the initial product:
 
@@ -466,42 +466,42 @@ Project priority: **High**
 
 ### 1 — Foundation & Vertical Slice
 
-| Key | Linear | Ticket | Priority | Blocked by |
-| --- | --- | --- | --- | --- |
-| F1 | SHO-5 | Bootstrap the web app, repository scripts, and CI gates | High | — |
-| F2 | SHO-6 | Define runtime ports and deterministic test seams | High | SHO-5 |
-| F3 | SHO-7 | Implement microphone and optional-camera media lifecycle | High | SHO-5 |
-| F4 | SHO-8 | Implement calibrated pulse-and-lift voice processing | High | SHO-6, SHO-7 |
-| F5 | SHO-9 | Build the responsive Phaser world and scripted-input chicken physics | High | SHO-5, SHO-6 |
+| Key | Linear | Ticket                                                               | Priority | Blocked by   |
+| --- | ------ | -------------------------------------------------------------------- | -------- | ------------ |
+| F1  | SHO-5  | Bootstrap the web app, repository scripts, and CI gates              | High     | —            |
+| F2  | SHO-6  | Define runtime ports and deterministic test seams                    | High     | SHO-5        |
+| F3  | SHO-7  | Implement microphone and optional-camera media lifecycle             | High     | SHO-5        |
+| F4  | SHO-8  | Implement calibrated pulse-and-lift voice processing                 | High     | SHO-6, SHO-7 |
+| F5  | SHO-9  | Build the responsive Phaser world and scripted-input chicken physics | High     | SHO-5, SHO-6 |
 
 ### 2 — Playable MVP
 
-| Key | Linear | Ticket | Priority | Blocked by |
-| --- | --- | --- | --- | --- |
-| M1 | SHO-10 | Connect `ControlIntent` to jump and airborne lift | High | SHO-8, SHO-9 |
-| M2 | SHO-11 | Build the handcrafted looping course and core run lifecycle | High | SHO-10 |
-| M3 | SHO-12 | Build permission, calibration, HUD, fallback-control, and results UX | High | SHO-7, SHO-8, SHO-11 |
-| M4 | SHO-13 | Add optional mirrored camera and portrait composition | High | SHO-7, SHO-9 |
-| M5 | SHO-14 | Validate and publish the playable MVP | High | SHO-11, SHO-12, SHO-13 |
+| Key | Linear | Ticket                                                               | Priority | Blocked by             |
+| --- | ------ | -------------------------------------------------------------------- | -------- | ---------------------- |
+| M1  | SHO-10 | Connect `ControlIntent` to jump and airborne lift                    | High     | SHO-8, SHO-9           |
+| M2  | SHO-11 | Build the handcrafted looping course and core run lifecycle          | High     | SHO-10                 |
+| M3  | SHO-12 | Build permission, calibration, HUD, fallback-control, and results UX | High     | SHO-7, SHO-8, SHO-11   |
+| M4  | SHO-13 | Add optional mirrored camera and portrait composition                | High     | SHO-7, SHO-9           |
+| M5  | SHO-14 | Validate and publish the playable MVP                                | High     | SHO-11, SHO-12, SHO-13 |
 
 ### 3 — Full Game Beta
 
-| Key | Linear | Ticket | Priority | Blocked by |
-| --- | --- | --- | --- | --- |
-| B1 | SHO-15 | Build seeded authored-chunk generation and reachability validation | High | SHO-14 |
-| B2 | SHO-16 | Add voice-aware obstacles and collectibles | Medium | SHO-10, SHO-15 |
-| B3 | SHO-17 | Add difficulty progression, lift stamina, and scoring depth | Medium | SHO-15, SHO-16 |
-| B4 | SHO-18 | Create original chicken/platform art, animation, audio, and hazard feedback | Medium | SHO-11, SHO-16 |
-| B5 | SHO-19 | Add versioned local settings, calibration, scores, and accessibility controls | High | SHO-12, SHO-14 |
-| B6 | SHO-20 | Harden browser lifecycle, compatibility, and performance | High | SHO-17, SHO-18, SHO-19 |
+| Key | Linear | Ticket                                                                        | Priority | Blocked by             |
+| --- | ------ | ----------------------------------------------------------------------------- | -------- | ---------------------- |
+| B1  | SHO-15 | Build seeded authored-chunk generation and reachability validation            | High     | SHO-14                 |
+| B2  | SHO-16 | Add voice-aware obstacles and collectibles                                    | Medium   | SHO-10, SHO-15         |
+| B3  | SHO-17 | Add difficulty progression, lift stamina, and scoring depth                   | Medium   | SHO-15, SHO-16         |
+| B4  | SHO-18 | Create original chicken/platform art, animation, audio, and hazard feedback   | Medium   | SHO-11, SHO-16         |
+| B5  | SHO-19 | Add versioned local settings, calibration, scores, and accessibility controls | High     | SHO-12, SHO-14         |
+| B6  | SHO-20 | Harden browser lifecycle, compatibility, and performance                      | High     | SHO-17, SHO-18, SHO-19 |
 
 ### 4 — PWA Launch
 
-| Key | Linear | Ticket | Priority | Blocked by |
-| --- | --- | --- | --- | --- |
-| P1 | SHO-21 | Ship the installable offline PWA and production Pages workflow | High | SHO-14, SHO-19 |
-| P2 | SHO-22 | Add opt-in local replay and share export | Medium | SHO-13, SHO-19, SHO-20 |
-| P3 | SHO-23 | Complete privacy, security, accessibility, and production release QA | High | SHO-20, SHO-21, SHO-22 |
+| Key | Linear | Ticket                                                               | Priority | Blocked by             |
+| --- | ------ | -------------------------------------------------------------------- | -------- | ---------------------- |
+| P1  | SHO-21 | Ship the installable offline PWA and production Pages workflow       | High     | SHO-14, SHO-19         |
+| P2  | SHO-22 | Add opt-in local replay and share export                             | Medium   | SHO-13, SHO-19, SHO-20 |
+| P3  | SHO-23 | Complete privacy, security, accessibility, and production release QA | High     | SHO-20, SHO-21, SHO-22 |
 
 ## Linear issue contract
 
@@ -553,13 +553,13 @@ blockers, not planned roadmap work.
 
 ## Main risks and mitigations
 
-| Risk | Mitigation |
-| --- | --- |
-| Microphones and browser processing vary widely | Three-stage calibration, signal-quality checks, manual threshold adjustment, physical-device matrix |
-| Game audio retriggers the voice controller | Low-volume design, echo cancellation preference, mute control, regression tests |
-| Main-thread load adds input latency | AudioWorklet scalar processing, fixed-step simulation, pooled objects, performance budgets |
-| Camera denial blocks the game | Request it separately and always provide an original fallback background |
-| Browser suspension corrupts a run | Explicit visibility/audio-context state machine and gesture-based resume |
-| Procedural chunks become impossible | Authored chunks, entry/exit contracts, seeded tests, compatibility validation |
-| Replay causes thermal or memory pressure | Post-MVP, 720p/30 fps cap, 15-second in-memory limit, capability fallback |
-| Reference content creates rights/privacy issues | Keep screenshots uncommitted and create original production assets |
+| Risk                                            | Mitigation                                                                                          |
+| ----------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| Microphones and browser processing vary widely  | Three-stage calibration, signal-quality checks, manual threshold adjustment, physical-device matrix |
+| Game audio retriggers the voice controller      | Low-volume design, echo cancellation preference, mute control, regression tests                     |
+| Main-thread load adds input latency             | AudioWorklet scalar processing, fixed-step simulation, pooled objects, performance budgets          |
+| Camera denial blocks the game                   | Request it separately and always provide an original fallback background                            |
+| Browser suspension corrupts a run               | Explicit visibility/audio-context state machine and gesture-based resume                            |
+| Procedural chunks become impossible             | Authored chunks, entry/exit contracts, seeded tests, compatibility validation                       |
+| Replay causes thermal or memory pressure        | Post-MVP, 720p/30 fps cap, 15-second in-memory limit, capability fallback                           |
+| Reference content creates rights/privacy issues | Keep screenshots uncommitted and create original production assets                                  |

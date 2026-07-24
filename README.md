@@ -14,3 +14,24 @@ The front camera is optional. Raw audio and video stay on-device.
 
 The supplied social-video screenshots are planning references only; production
 artwork and branding will be original.
+
+## Local development
+
+Use Node `22.18.0` and npm `10.9.3`.
+
+```bash
+npm ci
+npm run dev
+```
+
+Before committing an implementation ticket:
+
+```bash
+npm run format:check
+npm run lint
+npm run typecheck
+npm run test
+npm run build
+```
+
+Run `npm run test:e2e` for browser-facing changes.

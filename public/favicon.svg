@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Chicken">
+  <rect width="64" height="64" rx="16" fill="#081426"/>
+  <path d="M18 35c0-12 7-20 17-20 11 0 18 9 18 21 0 9-7 15-18 15-10 0-17-6-17-16Z" fill="#fff"/>
+  <path d="m50 29 11 6-11 6Z" fill="#f3c541"/>
+  <circle cx="42" cy="27" r="3.5" fill="#081426"/>
+  <path d="M27 16c0-5 3-9 7-9 3 0 5 2 5 5 0 4-5 5-12 4Z" fill="#ef4444"/>
+  <path d="M25 49v7m17-7v7M20 57h10m7 0h10" fill="none" stroke="#f3c541" stroke-linecap="round" stroke-width="4"/>
+</svg>

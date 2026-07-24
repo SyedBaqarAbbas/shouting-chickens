@@ -1,0 +1,232 @@
+:root {
+  color: #f8fbff;
+  background: #030810;
+  font-family:
+    Inter,
+    ui-rounded,
+    "SF Pro Rounded",
+    "Segoe UI",
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-width: 320px;
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  min-height: 100dvh;
+  overflow: hidden;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+.app-shell {
+  display: grid;
+  min-height: 100dvh;
+  padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right))
+    max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+  place-items: center;
+  background:
+    radial-gradient(circle at 20% 20%, rgb(248 210 79 / 16%), transparent 34%),
+    radial-gradient(circle at 78% 74%, rgb(68 179 255 / 15%), transparent 38%),
+    linear-gradient(145deg, #02050a 0%, #091426 54%, #030810 100%);
+}
+
+.game-phone {
+  position: relative;
+  display: grid;
+  width: min(100%, 432px);
+  height: min(calc(100dvh - 24px), 768px);
+  min-height: 560px;
+  overflow: hidden;
+  border: 1px solid rgb(255 255 255 / 14%);
+  border-radius: 30px;
+  isolation: isolate;
+  background: linear-gradient(180deg, rgb(10 22 39 / 78%), rgb(4 10 21 / 96%));
+  box-shadow:
+    0 28px 80px rgb(0 0 0 / 55%),
+    inset 0 1px 0 rgb(255 255 255 / 10%);
+}
+
+.camera-placeholder,
+.game-surface {
+  position: absolute;
+  inset: 0;
+}
+
+.camera-placeholder {
+  overflow: hidden;
+  background:
+    linear-gradient(180deg, rgb(47 77 103 / 35%), rgb(7 21 38 / 92%)),
+    radial-gradient(circle at 50% 28%, #24435b, #091525 62%, #050b16);
+}
+
+.camera-placeholder::before,
+.camera-placeholder::after {
+  position: absolute;
+  bottom: -13%;
+  width: 68%;
+  height: 45%;
+  border-radius: 50% 50% 0 0;
+  background: rgb(4 11 20 / 45%);
+  content: "";
+  filter: blur(12px);
+}
+
+.camera-placeholder::before {
+  left: -22%;
+  transform: rotate(8deg);
+}
+
+.camera-placeholder::after {
+  right: -22%;
+  transform: rotate(-8deg);
+}
+
+.camera-glow {
+  position: absolute;
+  width: 220px;
+  height: 220px;
+  border-radius: 50%;
+  filter: blur(52px);
+  opacity: 0.22;
+}
+
+.camera-glow--left {
+  top: 8%;
+  left: -18%;
+  background: #f4ce64;
+}
+
+.camera-glow--right {
+  top: 35%;
+  right: -24%;
+  background: #55c4ff;
+}
+
+.game-heading {
+  position: relative;
+  z-index: 2;
+  align-self: start;
+  padding: clamp(26px, 6vh, 50px) 28px 0;
+  pointer-events: none;
+  text-align: center;
+  text-shadow: 0 2px 18px rgb(0 0 0 / 45%);
+}
+
+.game-heading h1 {
+  margin: 4px 0 7px;
+  font-size: clamp(2rem, 8vw, 3rem);
+  letter-spacing: -0.045em;
+  line-height: 0.95;
+}
+
+.game-heading p {
+  max-width: 310px;
+  margin: 0 auto;
+  color: rgb(235 244 255 / 76%);
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
+.game-heading .eyebrow {
+  color: #f5d567;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.17em;
+  text-transform: uppercase;
+}
+
+.game-surface {
+  z-index: 1;
+}
+
+.game-surface canvas {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.bootstrap-note {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-self: end;
+  justify-self: center;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: max(18px, env(safe-area-inset-bottom));
+  padding: 8px 13px;
+  border: 1px solid rgb(255 255 255 / 12%);
+  border-radius: 999px;
+  color: rgb(244 249 255 / 72%);
+  background: rgb(3 9 18 / 66%);
+  backdrop-filter: blur(14px);
+  font-size: 0.75rem;
+  font-weight: 650;
+  pointer-events: none;
+}
+
+.status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #62dc94;
+  box-shadow: 0 0 12px rgb(98 220 148 / 80%);
+}
+
+@media (max-height: 620px) {
+  .game-phone {
+    min-height: calc(100dvh - 24px);
+  }
+
+  .game-heading {
+    padding-top: 22px;
+  }
+}
+
+@media (orientation: landscape) and (max-height: 540px) {
+  .game-phone::after {
+    position: absolute;
+    z-index: 5;
+    display: grid;
+    inset: 0;
+    padding: 32px;
+    place-items: center;
+    color: #f8fbff;
+    background: rgb(3 8 16 / 94%);
+    content: "Rotate your device to play";
+    font-size: 1.1rem;
+    font-weight: 750;
+    text-align: center;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
