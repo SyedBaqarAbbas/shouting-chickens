@@ -42,4 +42,16 @@ export default tseslint.config(
       },
     },
   },
+  {
+    files: ["src/core/**/*.{ts,tsx}"],
+    rules: {
+      "no-restricted-globals": ["error", "document", "navigator", "window"],
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: ["phaser", "react", "react-dom"],
+        },
+      ],
+    },
+  },
 );
