@@ -17,6 +17,7 @@ describe("ScriptedInputSource", () => {
 
     clock.advance(100);
     expect(input.latest()).toEqual({ atMs: 1_100, jumpPressed: true, lift: 0.8 });
+    expect(input.latest()).toEqual({ atMs: 1_100, jumpPressed: false, lift: 0.8 });
 
     clock.advance(120);
     expect(input.latest()).toEqual({ atMs: 1_180, jumpPressed: false, lift: 0.6 });
@@ -51,6 +52,7 @@ describe("MutableInputSource", () => {
 
     await input.start();
     expect(input.latest()).toEqual({ atMs: 20, jumpPressed: true, lift: 0.75 });
+    expect(input.latest()).toEqual({ atMs: 20, jumpPressed: false, lift: 0.75 });
 
     input.stop();
     expect(input.latest()).toEqual({ atMs: 0, jumpPressed: false, lift: 0 });

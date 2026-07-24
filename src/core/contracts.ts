@@ -81,7 +81,7 @@ export type GameEvent =
 export type GameEventListener = (event: GameEvent) => void;
 
 export interface GameRuntime {
-  mount(container: unknown): Promise<void>;
+  mount(container: HTMLElement): Promise<void>;
   startRun(options: RunOptions): void;
   pause(): void;
   resume(): void;

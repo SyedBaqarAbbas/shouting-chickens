@@ -72,7 +72,9 @@ export class ScriptedInputSource implements InputSource {
       };
     }
 
-    return { ...this.current };
+    const intent = { ...this.current };
+    this.current.jumpPressed = false;
+    return intent;
   }
 
   stop() {
@@ -91,7 +93,13 @@ export class MutableInputSource implements InputSource {
   }
 
   latest() {
-    return this.running ? { ...this.current } : { ...NEUTRAL_CONTROL_INTENT };
+    if (!this.running) {
+      return { ...NEUTRAL_CONTROL_INTENT };
+    }
+
+    const intent = { ...this.current };
+    this.current.jumpPressed = false;
+    return intent;
   }
 
   set(intent: ControlIntent) {

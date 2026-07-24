@@ -81,9 +81,11 @@ export class FakeAudioContext implements AudioContextPort {
 }
 
 export class FakeMediaGateway implements MediaGateway {
-  readonly microphoneTrack = new FakeMediaTrack("fake-microphone", "microphone");
-  readonly cameraTrack = new FakeMediaTrack("fake-camera", "camera");
-  readonly audioContext = new FakeAudioContext();
+  private currentMicrophoneTrack = new FakeMediaTrack("fake-microphone-1", "microphone");
+  private currentCameraTrack = new FakeMediaTrack("fake-camera-1", "camera");
+  private currentAudioContext = new FakeAudioContext();
+  private microphoneGeneration = 1;
+  private cameraGeneration = 1;
   microphoneRequestCount = 0;
   cameraRequestCount = 0;
   private microphoneFailure: Error | null = null;
@@ -99,6 +101,18 @@ export class FakeMediaGateway implements MediaGateway {
 
   capabilities() {
     return { ...this.available };
+  }
+
+  get microphoneTrack() {
+    return this.currentMicrophoneTrack;
+  }
+
+  get cameraTrack() {
+    return this.currentCameraTrack;
+  }
+
+  get audioContext() {
+    return this.currentAudioContext;
   }
 
   failNextMicrophoneRequest(error: Error) {
@@ -122,7 +136,15 @@ export class FakeMediaGateway implements MediaGateway {
       throw new Error("Microphone is unavailable");
     }
 
-    return new FakeMediaStream([this.microphoneTrack]);
+    if (this.currentMicrophoneTrack.readyState === "ended") {
+      this.microphoneGeneration += 1;
+      this.currentMicrophoneTrack = new FakeMediaTrack(
+        `fake-microphone-${this.microphoneGeneration}`,
+        "microphone",
+      );
+    }
+
+    return new FakeMediaStream([this.currentMicrophoneTrack]);
   }
 
   async requestCamera() {
@@ -138,7 +160,15 @@ export class FakeMediaGateway implements MediaGateway {
       throw new Error("Camera is unavailable");
     }
 
-    return new FakeMediaStream([this.cameraTrack]);
+    if (this.currentCameraTrack.readyState === "ended") {
+      this.cameraGeneration += 1;
+      this.currentCameraTrack = new FakeMediaTrack(
+        `fake-camera-${this.cameraGeneration}`,
+        "camera",
+      );
+    }
+
+    return new FakeMediaStream([this.currentCameraTrack]);
   }
 
   createAudioContext() {
@@ -146,6 +176,10 @@ export class FakeMediaGateway implements MediaGateway {
       throw new Error("Audio context is unavailable");
     }
 
-    return this.audioContext;
+    if (this.currentAudioContext.state === "closed") {
+      this.currentAudioContext = new FakeAudioContext();
+    }
+
+    return this.currentAudioContext;
   }
 }

@@ -63,4 +63,22 @@ describe("FakeMediaGateway", () => {
     await expect(media.requestCamera()).rejects.toThrow("denied");
     await expect(media.requestCamera()).resolves.toBeDefined();
   });
+
+  it("creates fresh resources after stopped tracks and closed audio contexts", async () => {
+    const media = new FakeMediaGateway();
+    const firstMicrophone = media.microphoneTrack;
+    const firstAudioContext = media.audioContext;
+
+    firstMicrophone.stop();
+    await firstAudioContext.close();
+
+    const restartedMicrophone = await media.requestMicrophone();
+    const restartedAudioContext = media.createAudioContext();
+
+    expect(media.microphoneTrack).not.toBe(firstMicrophone);
+    expect(restartedMicrophone.getTracks("microphone")).toEqual([media.microphoneTrack]);
+    expect(media.microphoneTrack.readyState).toBe("live");
+    expect(restartedAudioContext).not.toBe(firstAudioContext);
+    expect(restartedAudioContext.state).toBe("suspended");
+  });
 });
