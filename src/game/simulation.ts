@@ -1,4 +1,8 @@
 import type { ControlIntent } from "../core";
+import {
+  FixedStepPlayerController,
+  type PlayerControllerTuning,
+} from "./FixedStepPlayerController";
 
 export const LOGICAL_GAME_WIDTH = 432;
 export const LOGICAL_GAME_HEIGHT = 768;
@@ -12,8 +16,6 @@ export const WATER_DEATH_Y = 704;
 export const FIXED_WORLD_SPEED = 144;
 
 const STEP_SECONDS = 1 / FIXED_STEP_HZ;
-const GRAVITY_PER_SECOND = 1_180;
-const BASE_JUMP_VELOCITY = -470;
 const LANDING_EPSILON = 0.001;
 
 export type ChickenAnimationState = "idle" | "run" | "jump" | "flap" | "death";
@@ -55,9 +57,10 @@ export const FOUNDATION_PLATFORMS: readonly PlatformDefinition[] = Object.freeze
   Object.freeze({ id: "finish", x: 738, width: 310, top: 602 }),
 ]);
 
-type SimulationOptions = {
+export type SimulationOptions = {
   platforms?: readonly PlatformDefinition[];
   worldSpeed?: number;
+  playerTuning?: PlayerControllerTuning;
 };
 
 function copySnapshot(snapshot: SimulationSnapshot): SimulationSnapshot {
@@ -117,6 +120,7 @@ export class ChickenSimulation {
   readonly worldSpeed: number;
 
   private destroyed = false;
+  private readonly playerController: FixedStepPlayerController;
   private snapshotValue: SimulationSnapshot;
 
   constructor(options: SimulationOptions = {}) {
@@ -131,6 +135,7 @@ export class ChickenSimulation {
 
     this.platforms = platforms.map((platform) => ({ ...platform }));
     this.worldSpeed = worldSpeed;
+    this.playerController = new FixedStepPlayerController(options.playerTuning);
     this.snapshotValue = this.createInitialSnapshot();
   }
 
@@ -174,6 +179,7 @@ export class ChickenSimulation {
 
   reset() {
     this.assertAlive();
+    this.playerController.reset();
     this.snapshotValue = this.createInitialSnapshot();
     return this.snapshot();
   }
@@ -206,16 +212,24 @@ export class ChickenSimulation {
       }
     }
 
-    if (intent.jumpPressed && chicken.grounded) {
+    const control = this.playerController.step(
+      intent,
+      {
+        grounded: chicken.grounded,
+        velocityY: chicken.velocityY,
+      },
+      FIXED_STEP_MS,
+    );
+    chicken.velocityY = control.velocityY;
+
+    if (control.jumped) {
       chicken.grounded = false;
       chicken.supportingPlatformId = null;
-      chicken.velocityY = BASE_JUMP_VELOCITY;
     }
 
     if (!chicken.grounded) {
       const previousBottom = chicken.y + CHICKEN_BODY_HEIGHT / 2;
 
-      chicken.velocityY += GRAVITY_PER_SECOND * STEP_SECONDS;
       const nextY = chicken.y + chicken.velocityY * STEP_SECONDS;
       const nextBottom = nextY + CHICKEN_BODY_HEIGHT / 2;
 
@@ -248,7 +262,7 @@ export class ChickenSimulation {
       return this.snapshot();
     }
 
-    chicken.animation = chicken.grounded ? "run" : intent.lift > 0 ? "flap" : "jump";
+    chicken.animation = chicken.grounded ? "run" : control.lift > 0 ? "flap" : "jump";
     return this.snapshot();
   }
 

@@ -8,6 +8,7 @@ import {
   FIXED_WORLD_SPEED,
   type PlatformDefinition,
 } from "./simulation";
+import { DEFAULT_PLAYER_CONTROLLER_TUNING } from "./FixedStepPlayerController";
 
 const NEUTRAL_INTENT: ControlIntent = {
   atMs: 0,
@@ -84,6 +85,56 @@ describe("ChickenSimulation", () => {
     expect(landed.landingCount).toBe(1);
   });
 
+  it("uses held lift to rise without exceeding the cap, then descends after release", () => {
+    const simulation = new ChickenSimulation({ platforms: ENDLESS_PLATFORM });
+    simulation.start();
+    simulation.step({ ...NEUTRAL_INTENT, jumpPressed: true, lift: 1 });
+
+    for (let tick = 0; tick < 90; tick += 1) {
+      simulation.step({ ...NEUTRAL_INTENT, lift: 1 });
+      expect(simulation.snapshot().chicken.velocityY).toBeGreaterThanOrEqual(
+        DEFAULT_PLAYER_CONTROLLER_TUNING.maximumRiseVelocity,
+      );
+    }
+
+    const lifted = simulation.snapshot();
+    expect(lifted.chicken.animation).toBe("flap");
+    expect(lifted.chicken.velocityY).toBe(DEFAULT_PLAYER_CONTROLLER_TUNING.maximumRiseVelocity);
+
+    let descended = false;
+    for (let tick = 0; tick < 180 && !simulation.snapshot().chicken.grounded; tick += 1) {
+      const before = simulation.snapshot().chicken.y;
+      const after = simulation.step(NEUTRAL_INTENT);
+      descended ||= after.chicken.y > before;
+      expect(after.chicken.velocityY).toBeLessThanOrEqual(
+        DEFAULT_PLAYER_CONTROLLER_TUNING.maximumFallVelocity,
+      );
+    }
+
+    expect(descended).toBe(true);
+    expect(simulation.snapshot().chicken.grounded).toBe(true);
+  });
+
+  it("does not retrigger a held jump edge after landing", () => {
+    const simulation = new ChickenSimulation({ platforms: ENDLESS_PLATFORM });
+    simulation.start();
+    simulation.step({ ...NEUTRAL_INTENT, jumpPressed: true });
+
+    for (let tick = 0; tick < 180 && !simulation.snapshot().chicken.grounded; tick += 1) {
+      simulation.step({ ...NEUTRAL_INTENT, jumpPressed: true });
+    }
+
+    const landed = simulation.snapshot();
+    expect(landed.chicken.grounded).toBe(true);
+
+    const heldAfterLanding = simulation.step({
+      ...NEUTRAL_INTENT,
+      jumpPressed: true,
+    });
+    expect(heldAfterLanding.chicken.grounded).toBe(true);
+    expect(heldAfterLanding.landingCount).toBe(1);
+  });
+
   it("dies in water and fully resets every mutable run field", () => {
     const simulation = new ChickenSimulation();
     const initial = simulation.snapshot();
@@ -121,6 +172,25 @@ describe("ChickenSimulation", () => {
       activeTimers: 0,
       destroyed: false,
     });
+  });
+
+  it("preserves a held edge across pause and resume without inventing a second jump", () => {
+    const simulation = new ChickenSimulation({ platforms: ENDLESS_PLATFORM });
+    simulation.start();
+    simulation.step({ ...NEUTRAL_INTENT, jumpPressed: true });
+    simulation.pause();
+
+    for (let tick = 0; tick < 60; tick += 1) {
+      simulation.step({ ...NEUTRAL_INTENT, jumpPressed: true, lift: 1 });
+    }
+
+    simulation.resume();
+    for (let tick = 0; tick < 180 && !simulation.snapshot().chicken.grounded; tick += 1) {
+      simulation.step({ ...NEUTRAL_INTENT, jumpPressed: true });
+    }
+
+    expect(simulation.snapshot().chicken.grounded).toBe(true);
+    expect(simulation.step({ ...NEUTRAL_INTENT, jumpPressed: true }).chicken.grounded).toBe(true);
   });
 });
 
