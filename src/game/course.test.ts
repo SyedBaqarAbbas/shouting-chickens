@@ -15,10 +15,14 @@ import {
   CHICKEN_BODY_HEIGHT,
   ChickenSimulation,
   FALL_DEATH_Y,
-  FIXED_STEP_MS,
   SURVIVAL_SCORE_INTERVAL_MS,
   type PlatformDefinition,
 } from "./simulation";
+import {
+  AUTHORED_COURSE_TRACES,
+  authoredCourseIntent,
+  type AuthoredCourseTrace,
+} from "./testing/courseTraces";
 
 const NEUTRAL_INTENT: ControlIntent = {
   atMs: 0,
@@ -26,24 +30,16 @@ const NEUTRAL_INTENT: ControlIntent = {
   lift: 0,
 };
 
-const COURSE_JUMP_TICKS = new Set([82, 287, 445, 660, 800]);
-
-function authoredCourseIntent(tick: number): ControlIntent {
-  return {
-    atMs: tick * FIXED_STEP_MS,
-    jumpPressed: COURSE_JUMP_TICKS.has(tick),
-    lift: (tick >= 445 && tick < 465) || (tick >= 800 && tick < 820) ? 0.8 : 0,
-  };
-}
-
-function runAuthoredCourseTrace() {
+function runAuthoredCourseTrace(
+  traceDefinition: AuthoredCourseTrace = AUTHORED_COURSE_TRACES.complete,
+) {
   const simulation = new ChickenSimulation();
   const landedPlatforms = new Set<string>();
   const trace = [];
   simulation.start();
 
   for (let tick = 0; tick < 1_100 && simulation.snapshot().phase === "running"; tick += 1) {
-    const snapshot = simulation.step(authoredCourseIntent(tick));
+    const snapshot = simulation.step(authoredCourseIntent(traceDefinition, tick));
 
     if (snapshot.chicken.grounded && snapshot.chicken.supportingPlatformId) {
       landedPlatforms.add(snapshot.chicken.supportingPlatformId);
@@ -63,13 +59,22 @@ function runAuthoredCourseTrace() {
 
 describe("authored looping course", () => {
   it("keeps every challenge inside the documented jump and landing envelope", () => {
-    const gaps = LOOPING_COURSE_SEGMENTS.filter((segment) => segment.horizontalGap > 0);
+    const gaps = LOOPING_COURSE_SEGMENTS;
 
+    expect(COURSE_TRAVERSAL_ENVELOPE.liftAccelerationPerSecond).toBeLessThan(
+      COURSE_TRAVERSAL_ENVELOPE.gravityPerSecond,
+    );
     expect(Math.max(...gaps.map((segment) => segment.horizontalGap))).toBeLessThanOrEqual(
       COURSE_TRAVERSAL_ENVELOPE.maximumAuthoredGap,
     );
     expect(Math.max(...gaps.map((segment) => segment.verticalRise))).toBeLessThanOrEqual(
       COURSE_TRAVERSAL_ENVELOPE.maximumAuthoredRise,
+    );
+    expect(Math.max(...gaps.map((segment) => segment.verticalDrop))).toBeLessThanOrEqual(
+      COURSE_TRAVERSAL_ENVELOPE.maximumAuthoredDrop,
+    );
+    expect(Math.max(...gaps.map((segment) => segment.verticalChange))).toBeLessThanOrEqual(
+      COURSE_TRAVERSAL_ENVELOPE.maximumAuthoredVerticalChange,
     );
     expect(Math.min(...gaps.map((segment) => segment.approachWidth))).toBeGreaterThanOrEqual(
       COURSE_TRAVERSAL_ENVELOPE.minimumApproachWidth,
@@ -86,6 +91,31 @@ describe("authored looping course", () => {
     ]);
     expect(LOOPING_COURSE_SPIKES).toHaveLength(1);
     expect(LOOPING_COURSE_WATER.length).toBeGreaterThan(0);
+
+    for (const segment of gaps) {
+      const from = LOOPING_COURSE_PLATFORMS.find(
+        (platform) => platform.id === segment.fromPlatformId,
+      );
+      const to = LOOPING_COURSE_PLATFORMS.find((platform) => platform.id === segment.toPlatformId);
+      expect(from).toBeDefined();
+      expect(to).toBeDefined();
+
+      const targetX = to!.x <= from!.x ? to!.x + COURSE_LENGTH : to!.x;
+      expect(segment).toMatchObject({
+        approachWidth: from!.width,
+        landingWidth: to!.width,
+        horizontalGap: targetX - (from!.x + from!.width),
+        verticalRise: Math.max(0, from!.top - to!.top),
+        verticalDrop: Math.max(0, to!.top - from!.top),
+        verticalChange: Math.abs(from!.top - to!.top),
+      });
+    }
+
+    expect(gaps.find((segment) => segment.id === "spike")).toMatchObject({
+      horizontalGap: 90,
+      verticalDrop: 90,
+      verticalChange: 90,
+    });
   });
 
   it("replays one fixed trace across every segment and into the next loop", () => {
@@ -108,6 +138,25 @@ describe("authored looping course", () => {
       ]),
     );
   });
+
+  it.each([
+    ["water", AUTHORED_COURSE_TRACES.water, "water", "small-gap-water"],
+    ["fall", AUTHORED_COURSE_TRACES.fall, "fall", "void"],
+    ["spike", AUTHORED_COURSE_TRACES.spike, "hazard", "first-spike"],
+  ] as const)(
+    "replays the authored %s failure trace deterministically",
+    (_name, traceDefinition, deathReason, collisionId) => {
+      const first = runAuthoredCourseTrace(traceDefinition);
+      const second = runAuthoredCourseTrace(traceDefinition);
+
+      expect(second).toEqual(first);
+      expect(first.final).toMatchObject({
+        phase: "dead",
+        deathReason,
+        collisionId,
+      });
+    },
+  );
 
   it("projects one fixed object pool continuously across the course seam", () => {
     expect(wrapCourseCoordinate(COURSE_LENGTH + 12)).toBe(12);

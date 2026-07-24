@@ -85,34 +85,31 @@ describe("ChickenSimulation", () => {
     expect(landed.landingCount).toBe(1);
   });
 
-  it("uses held lift to rise without exceeding the cap, then descends after release", () => {
+  it("keeps a long-held lift bounded and eventually descends without stamina", () => {
     const simulation = new ChickenSimulation({ platforms: ENDLESS_PLATFORM });
     simulation.start();
     simulation.step({ ...NEUTRAL_INTENT, jumpPressed: true, lift: 1 });
 
-    for (let tick = 0; tick < 90; tick += 1) {
-      simulation.step({ ...NEUTRAL_INTENT, lift: 1 });
-      expect(simulation.snapshot().chicken.velocityY).toBeGreaterThanOrEqual(
+    let highestY = simulation.snapshot().chicken.y;
+    let descendedWhileHeld = false;
+
+    for (let tick = 0; tick < 3_000 && !simulation.snapshot().chicken.grounded; tick += 1) {
+      const before = simulation.snapshot().chicken.y;
+      const after = simulation.step({ ...NEUTRAL_INTENT, lift: 1 });
+      highestY = Math.min(highestY, after.chicken.y);
+      descendedWhileHeld ||= after.chicken.y > before;
+      expect(after.chicken.velocityY).toBeGreaterThanOrEqual(
         DEFAULT_PLAYER_CONTROLLER_TUNING.maximumRiseVelocity,
       );
-    }
-
-    const lifted = simulation.snapshot();
-    expect(lifted.chicken.animation).toBe("flap");
-    expect(lifted.chicken.velocityY).toBe(DEFAULT_PLAYER_CONTROLLER_TUNING.maximumRiseVelocity);
-
-    let descended = false;
-    for (let tick = 0; tick < 180 && !simulation.snapshot().chicken.grounded; tick += 1) {
-      const before = simulation.snapshot().chicken.y;
-      const after = simulation.step(NEUTRAL_INTENT);
-      descended ||= after.chicken.y > before;
       expect(after.chicken.velocityY).toBeLessThanOrEqual(
         DEFAULT_PLAYER_CONTROLLER_TUNING.maximumFallVelocity,
       );
     }
 
-    expect(descended).toBe(true);
+    expect(highestY).toBeGreaterThan(-1_000);
+    expect(descendedWhileHeld).toBe(true);
     expect(simulation.snapshot().chicken.grounded).toBe(true);
+    expect(simulation.snapshot().phase).toBe("running");
   });
 
   it("does not retrigger a held jump edge after landing", () => {

@@ -3,6 +3,11 @@ import { describe, expect, it, vi } from "vitest";
 import { ManualClock, ScriptedInputSource, type GameEvent, type InputSource } from "../core";
 import { PhaserGameRuntime, type PhaserMountFactory } from "./PhaserGameRuntime";
 import { FIXED_STEP_MS } from "./simulation";
+import {
+  AUTHORED_COURSE_TRACES,
+  toScriptedControlFrames,
+  type AuthoredCourseTrace,
+} from "./testing/courseTraces";
 
 class LifecycleInput implements InputSource {
   startCount = 0;
@@ -76,6 +81,8 @@ describe("PhaserGameRuntime", () => {
         activeTimers: 0,
         collisionZones: 5,
         pooledObjects: 9,
+        sceneObjects: 0,
+        inputListeners: 0,
         eventListeners: 1,
         hasPhaserGame: true,
       });
@@ -89,6 +96,8 @@ describe("PhaserGameRuntime", () => {
         activeTimers: 0,
         collisionZones: 0,
         pooledObjects: 0,
+        sceneObjects: 0,
+        inputListeners: 0,
         eventListeners: 0,
         hasPhaserGame: false,
       });
@@ -336,6 +345,64 @@ describe("PhaserGameRuntime", () => {
     expect(input.resetCount).toBe(20);
     runtime.destroy();
   });
+
+  it.each([
+    ["water", AUTHORED_COURSE_TRACES.water, "water"],
+    ["fall", AUTHORED_COURSE_TRACES.fall, "fall"],
+    ["spike", AUTHORED_COURSE_TRACES.spike, "hazard"],
+  ] as const)(
+    "emits one frozen runtime summary for the authored %s failure",
+    async (_name, traceDefinition: AuthoredCourseTrace, reason) => {
+      const clock = new ManualClock();
+      const scripted = new ScriptedInputSource(clock, toScriptedControlFrames(traceDefinition));
+      const runtime = new PhaserGameRuntime({
+        phaserFactory: () => ({
+          game: { destroy: vi.fn() },
+          ready: Promise.resolve(),
+        }),
+        inputSourceFactory: () => scripted,
+        renderResolution: 1,
+        clock,
+      });
+      const events: GameEvent[] = [];
+      runtime.subscribe((event) => events.push(event));
+      await runtime.mount(document.createElement("div"));
+      runtime.startRun(RUN_OPTIONS);
+
+      for (let tick = 0; tick < 1_100 && runtime.snapshot().phase === "running"; tick += 1) {
+        clock.advance(FIXED_STEP_MS);
+        runtime.advanceFrame(FIXED_STEP_MS);
+      }
+
+      const frozen = runtime.snapshot();
+      const summaries = events.filter((event) => event.type === "ended");
+      expect(frozen).toMatchObject({
+        phase: "dead",
+        deathReason: reason,
+      });
+      expect(summaries).toHaveLength(1);
+      expect(summaries[0]).toEqual({
+        type: "ended",
+        value: {
+          seed: RUN_OPTIONS.seed,
+          gameplayVersion: RUN_OPTIONS.gameplayVersion,
+          score: frozen.score,
+          survivalMs: frozen.elapsedMs,
+          distance: frozen.distance,
+          reason,
+        },
+      });
+
+      for (let tick = 0; tick < 120; tick += 1) {
+        clock.advance(FIXED_STEP_MS);
+        runtime.advanceFrame(FIXED_STEP_MS);
+      }
+
+      expect(runtime.snapshot()).toEqual(frozen);
+      expect(events.filter((event) => event.type === "ended")).toHaveLength(1);
+      runtime.destroy();
+    },
+  );
 
   it("replays short scripted edges identically under coarse and fine render frames", async () => {
     async function run(frameDeltas: readonly number[]) {

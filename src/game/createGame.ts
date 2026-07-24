@@ -86,6 +86,14 @@ class ChickenWorldScene extends Phaser.Scene {
     this.render(this.host.advanceFrame(deltaMs));
   }
 
+  resourceDiagnostics() {
+    return {
+      sceneObjects: this.children.getChildren().length,
+      activeTimers: 0,
+      pooledObjects: this.platformViews.length + this.spikeViews.length + this.waterViews.length,
+    };
+  }
+
   private configureLogicalCamera() {
     this.cameras.main.setZoom(this.renderResolution);
     this.cameras.main.centerOn(LOGICAL_GAME_WIDTH / 2, LOGICAL_GAME_HEIGHT / 2);
@@ -334,7 +342,8 @@ function mountPhaserGame({ parent, renderResolution, host }: Parameters<PhaserMo
     markReady = resolve;
   });
 
-  const game = new Phaser.Game({
+  const worldScene = new ChickenWorldScene(host, renderResolution, markReady);
+  const phaserGame = new Phaser.Game({
     type: Phaser.AUTO,
     parent,
     width: LOGICAL_GAME_WIDTH * renderResolution,
@@ -357,8 +366,17 @@ function mountPhaserGame({ parent, renderResolution, host }: Parameters<PhaserMo
       target: 60,
       smoothStep: true,
     },
-    scene: [new BootScene(), new ChickenWorldScene(host, renderResolution, markReady)],
+    scene: [new BootScene(), worldScene],
   });
+
+  const game = {
+    destroy(removeCanvas: boolean) {
+      phaserGame.destroy(removeCanvas);
+    },
+    diagnostics() {
+      return worldScene.resourceDiagnostics();
+    },
+  };
 
   return { game, ready };
 }

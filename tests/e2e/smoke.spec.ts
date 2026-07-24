@@ -68,14 +68,18 @@ test("ends a run once and completely restarts the fixed course", async ({ page }
     timers: await surface.getAttribute("data-active-timers"),
     pools: await surface.getAttribute("data-pooled-objects"),
     collisions: await surface.getAttribute("data-collision-zones"),
+    sceneObjects: await surface.getAttribute("data-scene-objects"),
+    inputListeners: await surface.getAttribute("data-input-listeners"),
   };
 
-  expect(stableResources).toEqual({
+  expect(stableResources).toMatchObject({
     bodies: "1",
     timers: "0",
-    pools: "9",
+    pools: "14",
     collisions: "5",
+    inputListeners: "5",
   });
+  expect(Number(stableResources.sceneObjects)).toBeGreaterThan(0);
 
   for (let run = 0; run < 3; run += 1) {
     await expect(surface).toHaveAttribute("data-simulation-phase", "dead", {
@@ -101,6 +105,8 @@ test("ends a run once and completely restarts the fixed course", async ({ page }
       timers: await surface.getAttribute("data-active-timers"),
       pools: await surface.getAttribute("data-pooled-objects"),
       collisions: await surface.getAttribute("data-collision-zones"),
+      sceneObjects: await surface.getAttribute("data-scene-objects"),
+      inputListeners: await surface.getAttribute("data-input-listeners"),
     }).toEqual(stableResources);
   }
 });

@@ -24,6 +24,7 @@ export interface InputSource {
   start(): Promise<void>;
   latest(): ControlIntent;
   resetRunState?(): void;
+  diagnostics?(): { activeListeners: number };
   stop(): void;
 }
 

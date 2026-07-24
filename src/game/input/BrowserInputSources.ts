@@ -9,7 +9,10 @@ abstract class BrowserIntentSource implements InputSource {
   protected held = false;
   protected pendingJump = false;
 
-  constructor(protected readonly clock: Clock) {}
+  constructor(
+    protected readonly clock: Clock,
+    private readonly listenerCount: number,
+  ) {}
 
   abstract start(): Promise<void>;
   abstract stop(): void;
@@ -36,6 +39,12 @@ abstract class BrowserIntentSource implements InputSource {
   resetRunState() {
     this.held = false;
     this.pendingJump = false;
+  }
+
+  diagnostics() {
+    return {
+      activeListeners: this.running ? this.listenerCount : 0,
+    };
   }
 }
 
@@ -71,7 +80,7 @@ export class KeyboardInputSource extends BrowserIntentSource {
     clock: Clock,
     private readonly target: ListenerTarget,
   ) {
-    super(clock);
+    super(clock, 2);
   }
 
   async start() {
@@ -117,7 +126,7 @@ export class TouchInputSource extends BrowserIntentSource {
     clock: Clock,
     private readonly target: ListenerTarget,
   ) {
-    super(clock);
+    super(clock, 3);
   }
 
   async start() {
@@ -201,6 +210,15 @@ export class CombinedInputSource implements InputSource {
     for (const source of this.sources) {
       source.resetRunState?.();
     }
+  }
+
+  diagnostics() {
+    return {
+      activeListeners: this.sources.reduce(
+        (total, source) => total + (source.diagnostics?.().activeListeners ?? 0),
+        0,
+      ),
+    };
   }
 
   stop() {

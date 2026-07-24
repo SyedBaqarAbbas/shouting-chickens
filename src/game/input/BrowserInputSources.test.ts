@@ -29,6 +29,7 @@ describe("browser ControlIntent sources", () => {
     const target = new EventTarget();
     const source = new KeyboardInputSource(clock, target);
     await source.start();
+    expect(source.diagnostics()).toEqual({ activeListeners: 2 });
 
     target.dispatchEvent(new KeyboardEvent("keydown", { key: " ", cancelable: true }));
 
@@ -47,6 +48,7 @@ describe("browser ControlIntent sources", () => {
     expect(source.latest().lift).toBe(0);
 
     source.stop();
+    expect(source.diagnostics()).toEqual({ activeListeners: 0 });
     target.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp" }));
     expect(source.latest()).toEqual({ atMs: 0, jumpPressed: false, lift: 0 });
   });
@@ -56,6 +58,7 @@ describe("browser ControlIntent sources", () => {
     const target = new EventTarget();
     const source = new TouchInputSource(clock, target);
     await source.start();
+    expect(source.diagnostics()).toEqual({ activeListeners: 3 });
 
     target.dispatchEvent(new Event("pointerdown", { cancelable: true }));
     expect(source.latest()).toEqual({
@@ -69,6 +72,7 @@ describe("browser ControlIntent sources", () => {
     expect(source.latest().lift).toBe(0);
 
     source.stop();
+    expect(source.diagnostics()).toEqual({ activeListeners: 0 });
     target.dispatchEvent(new Event("pointerdown"));
     expect(source.latest()).toEqual({ atMs: 0, jumpPressed: false, lift: 0 });
   });
@@ -82,6 +86,7 @@ describe("browser ControlIntent sources", () => {
       new TouchInputSource(clock, touchTarget),
     ]);
     await source.start();
+    expect(source.diagnostics()).toEqual({ activeListeners: 5 });
 
     touchTarget.dispatchEvent(new Event("pointerdown", { cancelable: true }));
     expect(source.latest()).toEqual({
@@ -91,6 +96,7 @@ describe("browser ControlIntent sources", () => {
     });
 
     source.stop();
+    expect(source.diagnostics()).toEqual({ activeListeners: 0 });
   });
 
   it("clears held state and queued edges across a run restart", async () => {

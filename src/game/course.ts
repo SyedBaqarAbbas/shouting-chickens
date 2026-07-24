@@ -24,12 +24,20 @@ export type WaterZoneDefinition = Readonly<{
 
 export type CourseSegmentDefinition = Readonly<{
   id: string;
-  challenge: "safe-start" | "small-gap" | "fall-gap" | "lift-gap" | "spike" | "loop";
+  challenge: "small-gap" | "fall-gap" | "lift-gap" | "spike" | "loop";
+  fromPlatformId: string;
+  toPlatformId: string;
   approachWidth: number;
   landingWidth: number;
   horizontalGap: number;
   verticalRise: number;
+  verticalDrop: number;
+  verticalChange: number;
 }>;
+
+type CourseTransitionDefinition = Readonly<
+  Pick<CourseSegmentDefinition, "id" | "challenge" | "fromPlatformId" | "toPlatformId">
+>;
 
 export const COURSE_LENGTH = 2_500;
 export const COURSE_WORLD_SPEED = 144;
@@ -44,11 +52,15 @@ export const COURSE_WORLD_SPEED = 144;
  */
 export const COURSE_TRAVERSAL_ENVELOPE = Object.freeze({
   worldSpeed: COURSE_WORLD_SPEED,
+  gravityPerSecond: DEFAULT_PLAYER_CONTROLLER_TUNING.gravityPerSecond,
   jumpVelocity: DEFAULT_PLAYER_CONTROLLER_TUNING.jumpVelocity,
+  liftAccelerationPerSecond: DEFAULT_PLAYER_CONTROLLER_TUNING.liftAccelerationPerSecond,
   maximumRiseVelocity: DEFAULT_PLAYER_CONTROLLER_TUNING.maximumRiseVelocity,
   maximumFallVelocity: DEFAULT_PLAYER_CONTROLLER_TUNING.maximumFallVelocity,
   maximumAuthoredGap: 110,
   maximumAuthoredRise: 56,
+  maximumAuthoredDrop: 90,
+  maximumAuthoredVerticalChange: 90,
   minimumApproachWidth: 190,
   minimumLandingWidth: 360,
   recommendedLift: 0.8,
@@ -78,56 +90,76 @@ export const LOOPING_COURSE_WATER: readonly WaterZoneDefinition[] = Object.freez
   Object.freeze({ id: "drop-gap-water", x: 1_730, width: 245, top: 704 }),
 ]);
 
-export const LOOPING_COURSE_SEGMENTS: readonly CourseSegmentDefinition[] = Object.freeze([
-  Object.freeze({
-    id: "safe-start",
-    challenge: "safe-start",
-    approachWidth: 248,
-    landingWidth: 520,
-    horizontalGap: 0,
-    verticalRise: 0,
-  }),
+const LOOPING_COURSE_TRANSITIONS: readonly CourseTransitionDefinition[] = Object.freeze([
   Object.freeze({
     id: "small-gap",
     challenge: "small-gap",
-    approachWidth: 248,
-    landingWidth: 390,
-    horizontalGap: 70,
-    verticalRise: 0,
+    fromPlatformId: "safe-start",
+    toPlatformId: "small-gap-landing",
   }),
   Object.freeze({
     id: "fall-gap",
     challenge: "fall-gap",
-    approachWidth: 390,
-    landingWidth: 360,
-    horizontalGap: 80,
-    verticalRise: 34,
+    fromPlatformId: "small-gap-landing",
+    toPlatformId: "fall-gap-landing",
   }),
   Object.freeze({
     id: "lift-gap",
     challenge: "lift-gap",
-    approachWidth: 360,
-    landingWidth: 370,
-    horizontalGap: 110,
-    verticalRise: 56,
+    fromPlatformId: "fall-gap-landing",
+    toPlatformId: "lift-gap-landing",
   }),
   Object.freeze({
     id: "spike",
     challenge: "spike",
-    approachWidth: 245,
-    landingWidth: 209,
-    horizontalGap: 0,
-    verticalRise: 0,
+    fromPlatformId: "lift-gap-landing",
+    toPlatformId: "spike-approach",
   }),
   Object.freeze({
     id: "loop",
     challenge: "loop",
-    approachWidth: 209,
-    landingWidth: 520,
-    horizontalGap: 10,
-    verticalRise: 0,
+    fromPlatformId: "spike-approach",
+    toPlatformId: "safe-start",
   }),
 ]);
+
+export function deriveCourseSegments(
+  platforms: readonly PlatformDefinition[],
+  transitions: readonly CourseTransitionDefinition[],
+  courseLength: number,
+): readonly CourseSegmentDefinition[] {
+  if (!Number.isFinite(courseLength) || courseLength <= 0) {
+    throw new RangeError("Course length must be a positive finite number");
+  }
+
+  return transitions.map((transition) => {
+    const fromIndex = platforms.findIndex((platform) => platform.id === transition.fromPlatformId);
+    const toIndex = platforms.findIndex((platform) => platform.id === transition.toPlatformId);
+    const from = platforms[fromIndex];
+    const to = platforms[toIndex];
+
+    if (!from || !to) {
+      throw new Error(`Course transition ${transition.id} references a missing platform`);
+    }
+
+    const toX = to.x + (toIndex <= fromIndex ? courseLength : 0);
+    const verticalDelta = from.top - to.top;
+
+    return Object.freeze({
+      ...transition,
+      approachWidth: from.width,
+      landingWidth: to.width,
+      horizontalGap: toX - (from.x + from.width),
+      verticalRise: Math.max(0, verticalDelta),
+      verticalDrop: Math.max(0, -verticalDelta),
+      verticalChange: Math.abs(verticalDelta),
+    });
+  });
+}
+
+export const LOOPING_COURSE_SEGMENTS = Object.freeze(
+  deriveCourseSegments(LOOPING_COURSE_PLATFORMS, LOOPING_COURSE_TRANSITIONS, COURSE_LENGTH),
+);
 
 export function wrapCourseCoordinate(value: number, length = COURSE_LENGTH) {
   if (!Number.isFinite(value) || !Number.isFinite(length) || length <= 0) {

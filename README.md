@@ -45,6 +45,8 @@ jump/lift envelope is deliberately narrower than the controller limits:
 - every gap has at least `190 px` of safe approach and `360 px` of landing;
 - jump starts at `-470 px/s`, airborne rise is capped at `-560 px/s`, and
   authored lift traces use at most `0.8`;
+- lift acceleration is `900 px/s²` against `1,180 px/s²` gravity, so even a
+  continuously held maximum lift eventually descends;
 - the sequence introduces a small water gap, a fall gap, a lift gap, and one
   spike before a safe return to the start.
 

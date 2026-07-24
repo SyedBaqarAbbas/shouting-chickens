@@ -19,6 +19,11 @@ export type PhaserFrameHost = {
 
 export type PhaserGameHandle = {
   destroy(removeCanvas: boolean): void;
+  diagnostics?(): {
+    sceneObjects: number;
+    activeTimers: number;
+    pooledObjects: number;
+  };
 };
 
 export type PhaserMountResult = {
@@ -40,6 +45,8 @@ export type RuntimeDiagnostics = {
   activeTimers: number;
   collisionZones: number;
   pooledObjects: number;
+  sceneObjects: number;
+  inputListeners: number;
   eventListeners: number;
   hasPhaserGame: boolean;
 };
@@ -237,7 +244,7 @@ export class PhaserGameRuntime implements GameRuntime, PhaserFrameHost {
     const input = this.input;
     const before = this.simulation.snapshot();
 
-    if (before.phase === "dead" && input?.latest().jumpPressed) {
+    if (before.phase === "dead" && input && this.readRestartIntent(input).jumpPressed) {
       this.restart();
     } else if (input) {
       this.runner.advance(deltaMs, () => this.readFixedStepIntent(input));
@@ -281,13 +288,16 @@ export class PhaserGameRuntime implements GameRuntime, PhaserFrameHost {
 
   diagnostics(): RuntimeDiagnostics {
     const simulation = this.simulation.diagnostics();
+    const scene = this.game?.diagnostics?.();
 
     return {
       state: this.stateValue,
       activeBodies: simulation.activeBodies,
-      activeTimers: simulation.activeTimers,
+      activeTimers: simulation.activeTimers + (scene?.activeTimers ?? 0),
       collisionZones: simulation.collisionZones,
-      pooledObjects: simulation.pooledObjects,
+      pooledObjects: scene?.pooledObjects ?? simulation.pooledObjects,
+      sceneObjects: scene?.sceneObjects ?? 0,
+      inputListeners: this.input?.diagnostics?.().activeListeners ?? 0,
       eventListeners: this.events.listenerCount(),
       hasPhaserGame: this.game !== null,
     };
@@ -311,6 +321,14 @@ export class PhaserGameRuntime implements GameRuntime, PhaserFrameHost {
     return input.latest();
   }
 
+  private readRestartIntent(input: InputSource) {
+    if (supportsSimulationTime(input)) {
+      return input.sampleAt(this.simulation.snapshot().elapsedMs);
+    }
+
+    return input.latest();
+  }
+
   private updateContainerState() {
     if (!this.container) {
       return;
@@ -328,6 +346,8 @@ export class PhaserGameRuntime implements GameRuntime, PhaserFrameHost {
     this.container.dataset.activeTimers = String(diagnostics.activeTimers);
     this.container.dataset.collisionZones = String(diagnostics.collisionZones);
     this.container.dataset.pooledObjects = String(diagnostics.pooledObjects);
+    this.container.dataset.sceneObjects = String(diagnostics.sceneObjects);
+    this.container.dataset.inputListeners = String(diagnostics.inputListeners);
     this.container.dataset.score = String(snapshot.score);
     this.container.dataset.elapsedMs = String(snapshot.elapsedMs);
     this.container.dataset.courseDistance = String(snapshot.courseDistance);

@@ -11,7 +11,7 @@ export type PlayerControllerTuning = Readonly<{
 export const DEFAULT_PLAYER_CONTROLLER_TUNING: PlayerControllerTuning = Object.freeze({
   gravityPerSecond: 1_180,
   jumpVelocity: -470,
-  liftAccelerationPerSecond: 1_500,
+  liftAccelerationPerSecond: 900,
   maximumRiseVelocity: -560,
   maximumFallVelocity: 720,
 });
