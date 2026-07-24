@@ -85,10 +85,13 @@ test.describe("high-density display", () => {
     const surface = await expectMountedWorld(page);
     await expect(surface).toHaveAttribute("data-render-resolution", "2");
 
-    const canvasSize = await surface.locator("canvas").evaluate((canvas) => ({
-      width: canvas.width,
-      height: canvas.height,
-    }));
+    const canvasSize = await surface.locator("canvas").evaluate((element) => {
+      const canvas = element as HTMLCanvasElement;
+      return {
+        width: canvas.width,
+        height: canvas.height,
+      };
+    });
 
     expect(canvasSize).toEqual({ width: 864, height: 1536 });
   });

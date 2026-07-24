@@ -8,13 +8,15 @@ const RUN_OPTIONS = {
   gameplayVersion: "sho-9",
 } as const;
 
-function isCompactLandscape() {
-  return window.innerWidth > window.innerHeight && window.innerHeight <= 540;
+interface GameSurfaceProps {
+  readonly landscape: boolean;
 }
 
-export function GameSurface() {
+export function GameSurface({ landscape }: GameSurfaceProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [landscape, setLandscape] = useState(isCompactLandscape);
+  const runtimeRef = useRef<ReturnType<typeof createGameRuntime> | null>(null);
+  const mountedRef = useRef(false);
+  const landscapeRef = useRef(landscape);
   const [mountFailed, setMountFailed] = useState(false);
 
   useEffect(() => {
@@ -25,26 +27,8 @@ export function GameSurface() {
     }
 
     const runtime = createGameRuntime();
+    runtimeRef.current = runtime;
     let disposed = false;
-    let mounted = false;
-    let landscapeNow = isCompactLandscape();
-
-    const applyOrientation = () => {
-      landscapeNow = isCompactLandscape();
-      setLandscape(landscapeNow);
-
-      if (!mounted) {
-        return;
-      }
-
-      if (landscapeNow) {
-        runtime.pause();
-      } else {
-        runtime.resume();
-      }
-    };
-
-    window.addEventListener("resize", applyOrientation);
 
     void runtime
       .mount(container)
@@ -53,10 +37,10 @@ export function GameSurface() {
           return;
         }
 
-        mounted = true;
+        mountedRef.current = true;
         runtime.startRun(RUN_OPTIONS);
 
-        if (landscapeNow) {
+        if (landscapeRef.current) {
           runtime.pause();
         }
       })
@@ -68,10 +52,26 @@ export function GameSurface() {
 
     return () => {
       disposed = true;
-      window.removeEventListener("resize", applyOrientation);
+      mountedRef.current = false;
+      runtimeRef.current = null;
       runtime.destroy();
     };
   }, []);
+
+  useEffect(() => {
+    landscapeRef.current = landscape;
+    const runtime = runtimeRef.current;
+
+    if (!runtime || !mountedRef.current) {
+      return;
+    }
+
+    if (landscape) {
+      runtime.pause();
+    } else {
+      runtime.resume();
+    }
+  }, [landscape]);
 
   return (
     <div
@@ -80,15 +80,9 @@ export function GameSurface() {
       className="game-surface"
       data-testid="game-surface"
       data-orientation={landscape ? "landscape" : "portrait"}
-      aria-label="Shouting Chickens game canvas"
+      aria-label="Shouting Chickens game. Tap, press Space, or use Up Arrow to jump."
       tabIndex={0}
     >
-      <div className="rotate-prompt" role="status" aria-live="polite" hidden={!landscape}>
-        <span aria-hidden="true">↻</span>
-        <strong>Rotate your device to play</strong>
-        <small>The run is paused while the screen is landscape.</small>
-      </div>
-
       {mountFailed ? (
         <p className="game-mount-error" role="alert">
           The game could not start. Refresh to try again.

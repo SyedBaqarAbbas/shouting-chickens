@@ -216,6 +216,22 @@ describe("BrowserMediaSession", () => {
     expect(harness.session.getCameraStream()).toBe(asMediaStream(harness.cameraStream));
   });
 
+  it("stops only video when optional camera composition is turned off", async () => {
+    const harness = createHarness();
+
+    await harness.session.requestMicrophoneFromGesture();
+    await harness.session.requestCameraFromGesture();
+    harness.session.stopCamera();
+
+    expect(harness.cameraTrack.stop).toHaveBeenCalledOnce();
+    expect(harness.microphoneTrack.stop).not.toHaveBeenCalled();
+    expect(harness.contexts[0]?.close).not.toHaveBeenCalled();
+    expect(harness.session.getSnapshot()).toMatchObject({
+      camera: { status: "idle" },
+      microphone: { status: "active" },
+    });
+  });
+
   it("reports ignored browser media preferences without failing capture", async () => {
     const harness = createHarness();
     harness.microphoneTrack.getSettings.mockReturnValue({
