@@ -43,8 +43,13 @@ export class GameEventHub {
     this.dispatch(event);
   }
 
+  resetRunState() {
+    this.lastSnapshotAtMs = Number.NEGATIVE_INFINITY;
+  }
+
   clear() {
     this.listeners.clear();
+    this.resetRunState();
   }
 
   listenerCount() {

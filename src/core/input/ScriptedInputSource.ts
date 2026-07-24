@@ -60,6 +60,7 @@ export class ScriptedInputSource implements InputSource {
     }
 
     const elapsedMs = this.clock.now() - this.startedAtMs;
+    let jumpPressed = this.current.jumpPressed;
 
     while (this.cursor + 1 < this.frames.length) {
       const nextFrame = this.frames[this.cursor + 1];
@@ -69,16 +70,18 @@ export class ScriptedInputSource implements InputSource {
       }
 
       this.cursor += 1;
+      jumpPressed ||= nextFrame.jumpPressed;
       this.current = {
         atMs: this.startedAtMs + nextFrame.atMs,
-        jumpPressed: nextFrame.jumpPressed,
+        jumpPressed: false,
         lift: nextFrame.lift,
       };
     }
 
-    const intent = { ...this.current };
-    this.current.jumpPressed = false;
-    return intent;
+    return {
+      ...this.current,
+      jumpPressed,
+    };
   }
 
   sampleAt(elapsedMs: number) {
@@ -119,6 +122,18 @@ export class ScriptedInputSource implements InputSource {
     this.lastSimulationSampleMs = 0;
   }
 
+  resetRunState() {
+    if (this.startedAtMs !== null) {
+      this.startedAtMs = this.clock.now();
+    }
+    this.cursor = -1;
+    this.current = {
+      ...NEUTRAL_CONTROL_INTENT,
+      atMs: this.startedAtMs ?? 0,
+    };
+    this.resetSimulationTime();
+  }
+
   stop() {
     this.startedAtMs = null;
     this.cursor = -1;
@@ -151,6 +166,10 @@ export class MutableInputSource implements InputSource {
     }
 
     this.current = { ...intent };
+  }
+
+  resetRunState() {
+    this.current = { ...NEUTRAL_CONTROL_INTENT };
   }
 
   stop() {

@@ -38,6 +38,8 @@ export type RuntimeDiagnostics = {
   state: "idle" | "mounting" | "mounted" | "destroyed";
   activeBodies: number;
   activeTimers: number;
+  collisionZones: number;
+  pooledObjects: number;
   eventListeners: number;
   hasPhaserGame: boolean;
 };
@@ -155,6 +157,8 @@ export class PhaserGameRuntime implements GameRuntime, PhaserFrameHost {
     this.lastRunOptions = { ...options };
     this.endedEventSent = false;
     this.runner.reset();
+    this.events.resetRunState();
+    this.input?.resetRunState?.();
 
     if (this.input && supportsSimulationTime(this.input)) {
       this.input.resetSimulationTime?.();
@@ -244,7 +248,7 @@ export class PhaserGameRuntime implements GameRuntime, PhaserFrameHost {
     this.events.publishSnapshot({
       phase: after.phase === "dead" ? "game-over" : after.phase,
       elapsedMs: after.elapsedMs,
-      score: Math.floor(after.distance),
+      score: after.score,
       distance: after.distance,
       normalizedInput: 0,
     });
@@ -256,15 +260,15 @@ export class PhaserGameRuntime implements GameRuntime, PhaserFrameHost {
         value: {
           seed: this.lastRunOptions.seed,
           gameplayVersion: this.lastRunOptions.gameplayVersion,
-          score: Math.floor(after.distance),
+          score: after.score,
           survivalMs: after.elapsedMs,
           distance: after.distance,
-          reason: "water",
+          reason: after.deathReason ?? "fall",
         },
       });
     }
 
-    if (before.phase !== after.phase) {
+    if (before.phase !== after.phase || before.score !== after.score) {
       this.updateContainerState();
     }
 
@@ -282,6 +286,8 @@ export class PhaserGameRuntime implements GameRuntime, PhaserFrameHost {
       state: this.stateValue,
       activeBodies: simulation.activeBodies,
       activeTimers: simulation.activeTimers,
+      collisionZones: simulation.collisionZones,
+      pooledObjects: simulation.pooledObjects,
       eventListeners: this.events.listenerCount(),
       hasPhaserGame: this.game !== null,
     };
@@ -319,5 +325,14 @@ export class PhaserGameRuntime implements GameRuntime, PhaserFrameHost {
     this.container.dataset.logicalHeight = "768";
     this.container.dataset.renderResolution = String(this.options.renderResolution);
     this.container.dataset.activeBodies = String(diagnostics.activeBodies);
+    this.container.dataset.activeTimers = String(diagnostics.activeTimers);
+    this.container.dataset.collisionZones = String(diagnostics.collisionZones);
+    this.container.dataset.pooledObjects = String(diagnostics.pooledObjects);
+    this.container.dataset.score = String(snapshot.score);
+    this.container.dataset.elapsedMs = String(snapshot.elapsedMs);
+    this.container.dataset.courseDistance = String(snapshot.courseDistance);
+    this.container.dataset.loopsCompleted = String(snapshot.loopsCompleted);
+    this.container.dataset.deathReason = snapshot.deathReason ?? "";
+    this.container.dataset.collisionId = snapshot.collisionId ?? "";
   }
 }

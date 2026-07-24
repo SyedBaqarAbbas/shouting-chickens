@@ -93,6 +93,32 @@ describe("browser ControlIntent sources", () => {
     source.stop();
   });
 
+  it("clears held state and queued edges across a run restart", async () => {
+    const clock = new ManualClock(100);
+    const keyboardTarget = new EventTarget();
+    const touchTarget = new EventTarget();
+    const source = new CombinedInputSource([
+      new KeyboardInputSource(clock, keyboardTarget),
+      new TouchInputSource(clock, touchTarget),
+    ]);
+    await source.start();
+
+    keyboardTarget.dispatchEvent(new KeyboardEvent("keydown", { key: " " }));
+    touchTarget.dispatchEvent(new Event("pointerdown"));
+    source.resetRunState();
+
+    expect(source.latest()).toEqual({
+      atMs: 100,
+      jumpPressed: false,
+      lift: 0,
+    });
+
+    keyboardTarget.dispatchEvent(new KeyboardEvent("keyup", { key: " " }));
+    keyboardTarget.dispatchEvent(new KeyboardEvent("keydown", { key: " " }));
+    expect(source.latest().jumpPressed).toBe(true);
+    source.stop();
+  });
+
   it("drives identical first-step physics from scripted, keyboard, and touch input", async () => {
     const scriptedClock = new ManualClock();
     const scripted = new ScriptedInputSource(scriptedClock, [

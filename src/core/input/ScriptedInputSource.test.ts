@@ -65,6 +65,25 @@ describe("ScriptedInputSource", () => {
     input.resetSimulationTime();
     expect(input.sampleAt(120).jumpPressed).toBe(true);
   });
+
+  it("rewinds wall-clock and fixed-step queues for a new run", async () => {
+    const clock = new ManualClock(200);
+    const input = new ScriptedInputSource(clock, [
+      { atMs: 40, jumpPressed: true, lift: 0.8 },
+      { atMs: 80, jumpPressed: false, lift: 0 },
+    ]);
+    await input.start();
+    clock.advance(100);
+
+    expect(input.latest().jumpPressed).toBe(true);
+    expect(input.sampleAt(100).jumpPressed).toBe(true);
+
+    input.resetRunState();
+
+    expect(input.latest()).toEqual({ atMs: 300, jumpPressed: false, lift: 0 });
+    expect(input.sampleAt(30).jumpPressed).toBe(false);
+    expect(input.sampleAt(50).jumpPressed).toBe(true);
+  });
 });
 
 describe("MutableInputSource", () => {
@@ -77,6 +96,9 @@ describe("MutableInputSource", () => {
     await input.start();
     expect(input.latest()).toEqual({ atMs: 20, jumpPressed: true, lift: 0.75 });
     expect(input.latest()).toEqual({ atMs: 20, jumpPressed: false, lift: 0.75 });
+
+    input.resetRunState();
+    expect(input.latest()).toEqual({ atMs: 0, jumpPressed: false, lift: 0 });
 
     input.stop();
     expect(input.latest()).toEqual({ atMs: 0, jumpPressed: false, lift: 0 });

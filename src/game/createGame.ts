@@ -14,12 +14,17 @@ import {
 } from "./input/BrowserInputSources";
 import { getCappedRenderResolution } from "./renderResolution";
 import {
+  COURSE_LENGTH,
+  LOOPING_COURSE_PLATFORMS,
+  LOOPING_COURSE_SPIKES,
+  LOOPING_COURSE_WATER,
+  projectLoopingWorldX,
+} from "./course";
+import {
   CHICKEN_BODY_HEIGHT,
   CHICKEN_BODY_WIDTH,
-  FOUNDATION_PLATFORMS,
   LOGICAL_GAME_HEIGHT,
   LOGICAL_GAME_WIDTH,
-  WATER_DEATH_Y,
   type ChickenAnimationState,
   type SimulationSnapshot,
 } from "./simulation";
@@ -47,10 +52,14 @@ class BootScene extends Phaser.Scene {
 
 class ChickenWorldScene extends Phaser.Scene {
   private readonly platformViews: Phaser.GameObjects.Rectangle[] = [];
+  private readonly spikeViews: Phaser.GameObjects.Triangle[] = [];
+  private readonly waterViews: Phaser.GameObjects.Rectangle[] = [];
   private chicken!: Phaser.GameObjects.Container;
   private chickenWing!: Phaser.GameObjects.Ellipse;
   private phaseShade!: Phaser.GameObjects.Rectangle;
   private phaseLabel!: Phaser.GameObjects.Text;
+  private scoreLabel!: Phaser.GameObjects.Text;
+  private courseLabel!: Phaser.GameObjects.Text;
 
   constructor(
     private readonly host: PhaserFrameHost,
@@ -63,7 +72,9 @@ class ChickenWorldScene extends Phaser.Scene {
   create() {
     this.configureLogicalCamera();
     this.createBackdrop();
+    this.createWater();
     this.createPlatforms();
+    this.createSpikes();
     this.createChicken();
     this.createStatusLayer();
     this.render(this.host.snapshot());
@@ -97,24 +108,6 @@ class ChickenWorldScene extends Phaser.Scene {
     this.add.circle(366, 312, 132, 0x67c8ff, 0.08).setDepth(-9);
 
     this.add
-      .rectangle(
-        LOGICAL_GAME_WIDTH / 2,
-        WATER_DEATH_Y + (LOGICAL_GAME_HEIGHT - WATER_DEATH_Y) / 2,
-        LOGICAL_GAME_WIDTH,
-        LOGICAL_GAME_HEIGHT - WATER_DEATH_Y,
-        0x0756b8,
-        0.96,
-      )
-      .setDepth(1);
-
-    for (let index = 0; index < 9; index += 1) {
-      this.add
-        .circle(index * 54 - 8, WATER_DEATH_Y, 28, index % 2 === 0 ? 0xffffff : 0x66adff)
-        .setAlpha(0.95)
-        .setDepth(2);
-    }
-
-    this.add
       .text(LOGICAL_GAME_WIDTH / 2, 194, "TAP · SPACE · ↑", {
         color: "#d8e8f7",
         fontFamily: "system-ui, sans-serif",
@@ -126,8 +119,28 @@ class ChickenWorldScene extends Phaser.Scene {
       .setAlpha(0.68);
   }
 
+  private createWater() {
+    for (const zone of LOOPING_COURSE_WATER) {
+      const water = this.add
+        .rectangle(
+          zone.x + zone.width / 2,
+          zone.top,
+          zone.width,
+          LOGICAL_GAME_HEIGHT - zone.top,
+          0x0756b8,
+          0.96,
+        )
+        .setOrigin(0.5, 0)
+        .setStrokeStyle(8, 0x91c9ff, 0.92)
+        .setDepth(1);
+
+      water.setData("worldX", zone.x + zone.width / 2);
+      this.waterViews.push(water);
+    }
+  }
+
   private createPlatforms() {
-    for (const platform of FOUNDATION_PLATFORMS) {
+    for (const platform of LOOPING_COURSE_PLATFORMS) {
       const trunk = this.add
         .rectangle(
           platform.x + platform.width / 2,
@@ -147,6 +160,29 @@ class ChickenWorldScene extends Phaser.Scene {
       trunk.setData("worldX", platform.x + platform.width / 2);
       grass.setData("worldX", platform.x + platform.width / 2);
       this.platformViews.push(trunk, grass);
+    }
+  }
+
+  private createSpikes() {
+    for (const spike of LOOPING_COURSE_SPIKES) {
+      const spikeView = this.add
+        .triangle(
+          spike.x + spike.width / 2,
+          spike.baseTop,
+          0,
+          spike.height,
+          spike.width / 2,
+          0,
+          spike.width,
+          spike.height,
+          0xf1f5f9,
+        )
+        .setOrigin(0.5, 1)
+        .setStrokeStyle(3, 0xbdc8d4)
+        .setDepth(6);
+
+      spikeView.setData("worldX", spike.x + spike.width / 2);
+      this.spikeViews.push(spikeView);
     }
   }
 
@@ -174,6 +210,28 @@ class ChickenWorldScene extends Phaser.Scene {
   }
 
   private createStatusLayer() {
+    this.scoreLabel = this.add
+      .text(LOGICAL_GAME_WIDTH / 2, 244, "Survived 0.0s · 0", {
+        color: "#ffffff",
+        fontFamily: "system-ui, sans-serif",
+        fontSize: "24px",
+        fontStyle: "700",
+      })
+      .setOrigin(0.5)
+      .setDepth(15)
+      .setShadow(0, 2, "#020711", 8, true, true);
+
+    this.courseLabel = this.add
+      .text(LOGICAL_GAME_WIDTH / 2, 276, "Loop 1 · 0%", {
+        color: "#b9d8f4",
+        fontFamily: "system-ui, sans-serif",
+        fontSize: "12px",
+        fontStyle: "700",
+        letterSpacing: 1,
+      })
+      .setOrigin(0.5)
+      .setDepth(15);
+
     this.phaseShade = this.add
       .rectangle(
         LOGICAL_GAME_WIDTH / 2,
@@ -200,8 +258,12 @@ class ChickenWorldScene extends Phaser.Scene {
   }
 
   private render(snapshot: SimulationSnapshot) {
-    for (const view of this.platformViews) {
-      view.x = Number(view.getData("worldX")) - snapshot.distance;
+    for (const view of [...this.platformViews, ...this.spikeViews, ...this.waterViews]) {
+      view.x = projectLoopingWorldX(
+        Number(view.getData("worldX")),
+        snapshot.distance,
+        COURSE_LENGTH,
+      );
     }
 
     const animation = snapshot.chicken.animation;
@@ -209,12 +271,28 @@ class ChickenWorldScene extends Phaser.Scene {
 
     this.chicken.setPosition(snapshot.chicken.x, snapshot.chicken.y + runBob);
     this.applyChickenPose(animation, snapshot.tick);
+    this.scoreLabel.setText(
+      `Survived ${(snapshot.elapsedMs / 1_000).toFixed(1)}s · ${snapshot.score}`,
+    );
+    this.courseLabel.setText(
+      `Loop ${snapshot.loopsCompleted + 1} · ${Math.floor(
+        (snapshot.courseDistance / COURSE_LENGTH) * 100,
+      )}%`,
+    );
 
+    const deathHeading =
+      snapshot.deathReason === "hazard"
+        ? "Ouch!"
+        : snapshot.deathReason === "fall"
+          ? "Too far!"
+          : "Splash!";
     const phaseCopy =
       snapshot.phase === "paused"
         ? "Paused"
         : snapshot.phase === "dead"
-          ? "Splash!\nTap to restart"
+          ? `${deathHeading}\nSurvived ${(snapshot.elapsedMs / 1_000).toFixed(
+              1,
+            )}s · Score ${snapshot.score}\nTap / Space / ↑ to restart`
           : "";
 
     this.phaseShade.setVisible(Boolean(phaseCopy));

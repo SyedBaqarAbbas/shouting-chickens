@@ -59,6 +59,52 @@ test("does not accumulate real Phaser canvases across repeated boots", async ({ 
   }
 });
 
+test("ends a run once and completely restarts the fixed course", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/");
+  const surface = await expectMountedWorld(page);
+  const stableResources = {
+    bodies: await surface.getAttribute("data-active-bodies"),
+    timers: await surface.getAttribute("data-active-timers"),
+    pools: await surface.getAttribute("data-pooled-objects"),
+    collisions: await surface.getAttribute("data-collision-zones"),
+  };
+
+  expect(stableResources).toEqual({
+    bodies: "1",
+    timers: "0",
+    pools: "9",
+    collisions: "5",
+  });
+
+  for (let run = 0; run < 3; run += 1) {
+    await expect(surface).toHaveAttribute("data-simulation-phase", "dead", {
+      timeout: 10_000,
+    });
+    await expect(surface).toHaveAttribute("data-death-reason", "water");
+    await expect(surface).toHaveAttribute("data-collision-id", "small-gap-water");
+
+    const ended = await surface.evaluate((element) => ({
+      elapsedMs: Number(element.getAttribute("data-elapsed-ms")),
+      score: Number(element.getAttribute("data-score")),
+    }));
+    expect(ended.elapsedMs).toBeGreaterThan(0);
+    expect(ended.score).toBe(Math.floor(ended.elapsedMs / 100));
+
+    await page.keyboard.press("Space");
+    await expect(surface).toHaveAttribute("data-simulation-phase", "running");
+    await expect(surface).toHaveAttribute("data-death-reason", "");
+    await expect(surface).toHaveAttribute("data-collision-id", "");
+    await expect(surface).toHaveAttribute("data-loops-completed", "0");
+    expect({
+      bodies: await surface.getAttribute("data-active-bodies"),
+      timers: await surface.getAttribute("data-active-timers"),
+      pools: await surface.getAttribute("data-pooled-objects"),
+      collisions: await surface.getAttribute("data-collision-zones"),
+    }).toEqual(stableResources);
+  }
+});
+
 test("pauses behind a rotate message in compact landscape", async ({ page }) => {
   await page.setViewportSize({ width: 844, height: 390 });
   await page.goto("/");

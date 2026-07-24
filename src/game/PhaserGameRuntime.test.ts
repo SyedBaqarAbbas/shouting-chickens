@@ -7,6 +7,7 @@ import { FIXED_STEP_MS } from "./simulation";
 class LifecycleInput implements InputSource {
   startCount = 0;
   stopCount = 0;
+  resetCount = 0;
 
   async start() {
     this.startCount += 1;
@@ -14,6 +15,10 @@ class LifecycleInput implements InputSource {
 
   latest() {
     return { atMs: 0, jumpPressed: false, lift: 0 };
+  }
+
+  resetRunState() {
+    this.resetCount += 1;
   }
 
   stop() {
@@ -69,6 +74,8 @@ describe("PhaserGameRuntime", () => {
         state: "mounted",
         activeBodies: 1,
         activeTimers: 0,
+        collisionZones: 5,
+        pooledObjects: 9,
         eventListeners: 1,
         hasPhaserGame: true,
       });
@@ -80,10 +87,13 @@ describe("PhaserGameRuntime", () => {
         state: "destroyed",
         activeBodies: 0,
         activeTimers: 0,
+        collisionZones: 0,
+        pooledObjects: 0,
         eventListeners: 0,
         hasPhaserGame: false,
       });
       expect(input.startCount).toBe(1);
+      expect(input.resetCount).toBe(2);
       expect(input.stopCount).toBe(1);
       expect(container.dataset.activeBodies).toBe("0");
     }
@@ -227,6 +237,18 @@ describe("PhaserGameRuntime", () => {
       chicken: { animation: "death" },
     });
     expect(events.filter((event) => event.type === "ended")).toHaveLength(1);
+    const ended = events.find((event) => event.type === "ended");
+    expect(ended).toEqual({
+      type: "ended",
+      value: {
+        seed: RUN_OPTIONS.seed,
+        gameplayVersion: RUN_OPTIONS.gameplayVersion,
+        score: runtime.snapshot().score,
+        survivalMs: runtime.snapshot().elapsedMs,
+        distance: runtime.snapshot().distance,
+        reason: "water",
+      },
+    });
 
     runtime.restart();
     expect(runtime.snapshot()).toMatchObject({
@@ -242,6 +264,76 @@ describe("PhaserGameRuntime", () => {
         animation: "run",
       },
     });
+    runtime.destroy();
+  });
+
+  it("soaks repeated complete runs without growing bodies, listeners, timers, or pools", async () => {
+    const input = new LifecycleInput();
+    const runtime = new PhaserGameRuntime({
+      phaserFactory: () => ({
+        game: { destroy: vi.fn() },
+        ready: Promise.resolve(),
+      }),
+      inputSourceFactory: () => input,
+      renderResolution: 1,
+      clock: new ManualClock(),
+    });
+    const events: GameEvent[] = [];
+    runtime.subscribe((event) => events.push(event));
+    const container = document.createElement("div");
+    await runtime.mount(container);
+
+    let stableDiagnostics: ReturnType<typeof runtime.diagnostics> | null = null;
+
+    for (let run = 0; run < 20; run += 1) {
+      if (run === 0) {
+        runtime.startRun(RUN_OPTIONS);
+      } else {
+        runtime.restart();
+      }
+
+      expect(runtime.snapshot()).toMatchObject({
+        phase: "running",
+        tick: 0,
+        elapsedMs: 0,
+        score: 0,
+        distance: 0,
+        courseDistance: 0,
+        loopsCompleted: 0,
+        deathReason: null,
+        collisionId: null,
+        landingCount: 0,
+        chicken: {
+          velocityY: 0,
+          grounded: true,
+          supportingPlatformId: "safe-start",
+        },
+      });
+
+      const diagnostics = runtime.diagnostics();
+      stableDiagnostics ??= diagnostics;
+      expect(diagnostics).toEqual(stableDiagnostics);
+
+      for (let tick = 0; tick < 600 && runtime.snapshot().phase === "running"; tick += 1) {
+        runtime.advanceFrame(FIXED_STEP_MS);
+      }
+
+      const ended = runtime.snapshot();
+      expect(ended.phase).toBe("dead");
+      expect(ended.deathReason).toBe("water");
+      expect(events.filter((event) => event.type === "ended")).toHaveLength(run + 1);
+      expect(container.dataset.score).toBe(String(ended.score));
+      expect(container.dataset.elapsedMs).toBe(String(ended.elapsedMs));
+      expect(container.dataset.pooledObjects).toBe("9");
+
+      for (let frozenFrame = 0; frozenFrame < 10; frozenFrame += 1) {
+        runtime.advanceFrame(FIXED_STEP_MS);
+      }
+      expect(runtime.snapshot()).toEqual(ended);
+      expect(events.filter((event) => event.type === "ended")).toHaveLength(run + 1);
+    }
+
+    expect(input.resetCount).toBe(20);
     runtime.destroy();
   });
 

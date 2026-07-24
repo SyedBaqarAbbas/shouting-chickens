@@ -3,9 +3,9 @@ import { useEffect, useRef, useState } from "react";
 import { createGameRuntime } from "../game/createGame";
 
 const RUN_OPTIONS = {
-  seed: "foundation-world",
+  seed: "looping-course",
   calibration: null,
-  gameplayVersion: "sho-9",
+  gameplayVersion: "sho-11",
 } as const;
 
 interface GameSurfaceProps {

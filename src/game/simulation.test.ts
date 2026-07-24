@@ -170,6 +170,8 @@ describe("ChickenSimulation", () => {
     expect(simulation.diagnostics()).toEqual({
       activeBodies: 1,
       activeTimers: 0,
+      collisionZones: 2,
+      pooledObjects: 2,
       destroyed: false,
     });
   });

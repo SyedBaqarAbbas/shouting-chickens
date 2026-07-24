@@ -35,3 +35,19 @@ npm run build
 ```
 
 Run `npm run test:e2e` for browser-facing changes.
+
+## Handcrafted course contract
+
+The MVP course is a fixed `2,500 px` cycle running at `144 px/s`. Its authored
+jump/lift envelope is deliberately narrower than the controller limits:
+
+- gaps are at most `110 px`, with no more than `56 px` of upward step;
+- every gap has at least `190 px` of safe approach and `360 px` of landing;
+- jump starts at `-470 px/s`, airborne rise is capped at `-560 px/s`, and
+  authored lift traces use at most `0.8`;
+- the sequence introduces a small water gap, a fall gap, a lift gap, and one
+  spike before a safe return to the start.
+
+Score is elapsed survival time at ten points per second. Water, a fall, or the
+spike freezes the exact score tick; Space, Arrow Up, or tap starts a completely
+reset run.

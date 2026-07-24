@@ -32,6 +32,11 @@ abstract class BrowserIntentSource implements InputSource {
     this.pendingJump = false;
     return intent;
   }
+
+  resetRunState() {
+    this.held = false;
+    this.pendingJump = false;
+  }
 }
 
 export class KeyboardInputSource extends BrowserIntentSource {
@@ -190,6 +195,12 @@ export class CombinedInputSource implements InputSource {
       },
       { atMs: 0, jumpPressed: false, lift: 0 },
     );
+  }
+
+  resetRunState() {
+    for (const source of this.sources) {
+      source.resetRunState?.();
+    }
   }
 
   stop() {

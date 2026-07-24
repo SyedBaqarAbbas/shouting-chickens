@@ -48,4 +48,19 @@ describe("GameEventHub", () => {
     });
     expect(listener).not.toHaveBeenCalled();
   });
+
+  it("starts snapshot timing fresh for every run without growing listeners", () => {
+    const clock = new ManualClock();
+    const events = new GameEventHub(clock, 100);
+    const listener = vi.fn();
+    events.subscribe(listener);
+
+    expect(events.publishSnapshot(snapshot)).toBe(true);
+    expect(events.publishSnapshot(snapshot)).toBe(false);
+
+    events.resetRunState();
+
+    expect(events.publishSnapshot({ ...snapshot, elapsedMs: 0, score: 0 })).toBe(true);
+    expect(events.listenerCount()).toBe(1);
+  });
 });

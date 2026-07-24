@@ -1,4 +1,15 @@
-import type { ControlIntent } from "../core";
+import type { ControlIntent, RunEndReason } from "../core";
+import {
+  COURSE_LENGTH,
+  COURSE_WORLD_SPEED,
+  LOOPING_COURSE_PLATFORMS,
+  LOOPING_COURSE_SPIKES,
+  LOOPING_COURSE_WATER,
+  wrapCourseCoordinate,
+  type PlatformDefinition,
+  type SpikeHazardDefinition,
+  type WaterZoneDefinition,
+} from "./course";
 import {
   FixedStepPlayerController,
   type PlayerControllerTuning,
@@ -13,26 +24,25 @@ export const CHICKEN_SCREEN_X = 112;
 export const CHICKEN_BODY_WIDTH = 42;
 export const CHICKEN_BODY_HEIGHT = 54;
 export const WATER_DEATH_Y = 704;
-export const FIXED_WORLD_SPEED = 144;
+export const FALL_DEATH_Y = LOGICAL_GAME_HEIGHT + CHICKEN_BODY_HEIGHT;
+export const FIXED_WORLD_SPEED = COURSE_WORLD_SPEED;
+export const SURVIVAL_SCORE_INTERVAL_MS = 100;
 
 const STEP_SECONDS = 1 / FIXED_STEP_HZ;
 const LANDING_EPSILON = 0.001;
 
 export type ChickenAnimationState = "idle" | "run" | "jump" | "flap" | "death";
 export type SimulationPhase = "ready" | "running" | "paused" | "dead";
-
-export type PlatformDefinition = {
-  id: string;
-  x: number;
-  width: number;
-  top: number;
-};
+export type SimulationDeathReason = Extract<RunEndReason, "water" | "fall" | "hazard">;
 
 export type SimulationSnapshot = {
   phase: SimulationPhase;
   tick: number;
   elapsedMs: number;
+  score: number;
   distance: number;
+  courseDistance: number;
+  loopsCompleted: number;
   chicken: {
     x: number;
     y: number;
@@ -41,26 +51,41 @@ export type SimulationSnapshot = {
     supportingPlatformId: string | null;
     animation: ChickenAnimationState;
   };
-  deathReason: "water" | null;
+  deathReason: SimulationDeathReason | null;
+  collisionId: string | null;
   landingCount: number;
 };
 
 export type SimulationDiagnostics = {
   activeBodies: number;
   activeTimers: number;
+  collisionZones: number;
+  pooledObjects: number;
   destroyed: boolean;
 };
 
-export const FOUNDATION_PLATFORMS: readonly PlatformDefinition[] = Object.freeze([
-  Object.freeze({ id: "start", x: -60, width: 390, top: 584 }),
-  Object.freeze({ id: "landing", x: 392, width: 276, top: 548 }),
-  Object.freeze({ id: "finish", x: 738, width: 310, top: 602 }),
-]);
+export const FOUNDATION_PLATFORMS = LOOPING_COURSE_PLATFORMS;
+export type { PlatformDefinition } from "./course";
 
 export type SimulationOptions = {
   platforms?: readonly PlatformDefinition[];
+  spikes?: readonly SpikeHazardDefinition[];
+  water?: readonly WaterZoneDefinition[] | null;
+  courseLength?: number | null;
   worldSpeed?: number;
   playerTuning?: PlayerControllerTuning;
+};
+
+type PlatformInstance = PlatformDefinition & {
+  worldX: number;
+};
+
+type SpikeInstance = SpikeHazardDefinition & {
+  worldX: number;
+};
+
+type WaterInstance = WaterZoneDefinition & {
+  worldX: number;
 };
 
 function copySnapshot(snapshot: SimulationSnapshot): SimulationSnapshot {
@@ -70,53 +95,142 @@ function copySnapshot(snapshot: SimulationSnapshot): SimulationSnapshot {
   };
 }
 
-function validatePlatforms(platforms: readonly PlatformDefinition[]) {
-  for (const platform of platforms) {
+function validateHorizontalDefinitions(
+  definitions: readonly Readonly<{ id: string; x: number; width: number }>[],
+  kind: string,
+) {
+  for (const definition of definitions) {
     if (
-      !platform.id ||
-      !Number.isFinite(platform.x) ||
-      !Number.isFinite(platform.width) ||
-      platform.width <= 0 ||
-      !Number.isFinite(platform.top)
+      !definition.id ||
+      !Number.isFinite(definition.x) ||
+      !Number.isFinite(definition.width) ||
+      definition.width <= 0
     ) {
-      throw new RangeError("Every platform needs a finite position and positive width");
+      throw new RangeError(`Every ${kind} needs a finite position and positive width`);
     }
   }
 }
 
-function platformSupportsChicken(platform: PlatformDefinition, distance: number, chickenY: number) {
-  const chickenWorldX = distance + CHICKEN_SCREEN_X;
+function validatePlatforms(platforms: readonly PlatformDefinition[]) {
+  validateHorizontalDefinitions(platforms, "platform");
+
+  for (const platform of platforms) {
+    if (!Number.isFinite(platform.top)) {
+      throw new RangeError("Every platform needs a finite top");
+    }
+  }
+}
+
+function validateSpikes(spikes: readonly SpikeHazardDefinition[]) {
+  validateHorizontalDefinitions(spikes, "spike");
+
+  for (const spike of spikes) {
+    if (!Number.isFinite(spike.baseTop) || !Number.isFinite(spike.height) || spike.height <= 0) {
+      throw new RangeError("Every spike needs a finite base and positive height");
+    }
+  }
+}
+
+function validateWater(water: readonly WaterZoneDefinition[]) {
+  validateHorizontalDefinitions(water, "water zone");
+
+  for (const zone of water) {
+    if (!Number.isFinite(zone.top)) {
+      throw new RangeError("Every water zone needs a finite top");
+    }
+  }
+}
+
+function repeatedInstances<T extends Readonly<{ x: number }>>(
+  definitions: readonly T[],
+  aroundWorldX: number,
+  courseLength: number | null,
+): readonly (T & { worldX: number })[] {
+  if (courseLength === null) {
+    return definitions.map((definition) => ({ ...definition, worldX: definition.x }));
+  }
+
+  const centerCycle = Math.floor(aroundWorldX / courseLength);
+  const instances: (T & { worldX: number })[] = [];
+
+  for (let cycle = centerCycle - 1; cycle <= centerCycle + 1; cycle += 1) {
+    for (const definition of definitions) {
+      instances.push({
+        ...definition,
+        worldX: definition.x + cycle * courseLength,
+      });
+    }
+  }
+
+  return instances;
+}
+
+function platformSupportsChicken(
+  platform: PlatformInstance,
+  chickenWorldX: number,
+  chickenY: number,
+) {
   const chickenLeft = chickenWorldX - CHICKEN_BODY_WIDTH / 2;
   const chickenRight = chickenWorldX + CHICKEN_BODY_WIDTH / 2;
   const chickenBottom = chickenY + CHICKEN_BODY_HEIGHT / 2;
 
   return (
-    chickenRight > platform.x &&
-    chickenLeft < platform.x + platform.width &&
+    chickenRight > platform.worldX &&
+    chickenLeft < platform.worldX + platform.width &&
     Math.abs(chickenBottom - platform.top) <= LANDING_EPSILON
   );
 }
 
 function canLandOnPlatform(
-  platform: PlatformDefinition,
-  distance: number,
+  platform: PlatformInstance,
+  chickenWorldX: number,
   previousBottom: number,
   nextBottom: number,
 ) {
-  const chickenWorldX = distance + CHICKEN_SCREEN_X;
   const chickenLeft = chickenWorldX - CHICKEN_BODY_WIDTH / 2;
   const chickenRight = chickenWorldX + CHICKEN_BODY_WIDTH / 2;
 
   return (
-    chickenRight > platform.x &&
-    chickenLeft < platform.x + platform.width &&
+    chickenRight > platform.worldX &&
+    chickenLeft < platform.worldX + platform.width &&
     previousBottom <= platform.top + LANDING_EPSILON &&
     nextBottom >= platform.top
   );
 }
 
+function intersectsSpike(
+  spike: SpikeInstance,
+  previousWorldX: number,
+  nextWorldX: number,
+  chickenY: number,
+) {
+  const sweptLeft = Math.min(previousWorldX, nextWorldX) - CHICKEN_BODY_WIDTH / 2;
+  const sweptRight = Math.max(previousWorldX, nextWorldX) + CHICKEN_BODY_WIDTH / 2;
+  const chickenTop = chickenY - CHICKEN_BODY_HEIGHT / 2;
+  const chickenBottom = chickenY + CHICKEN_BODY_HEIGHT / 2;
+  const spikeTop = spike.baseTop - spike.height;
+
+  return (
+    sweptRight > spike.worldX &&
+    sweptLeft < spike.worldX + spike.width &&
+    chickenBottom > spikeTop &&
+    chickenTop < spike.baseTop
+  );
+}
+
+function isOverWater(zone: WaterInstance, chickenWorldX: number, chickenBottom: number) {
+  return (
+    chickenWorldX >= zone.worldX &&
+    chickenWorldX <= zone.worldX + zone.width &&
+    chickenBottom >= zone.top
+  );
+}
+
 export class ChickenSimulation {
   readonly platforms: readonly PlatformDefinition[];
+  readonly spikes: readonly SpikeHazardDefinition[];
+  readonly water: readonly WaterZoneDefinition[] | null;
+  readonly courseLength: number | null;
   readonly worldSpeed: number;
 
   private destroyed = false;
@@ -124,16 +238,41 @@ export class ChickenSimulation {
   private snapshotValue: SimulationSnapshot;
 
   constructor(options: SimulationOptions = {}) {
-    const platforms = options.platforms ?? FOUNDATION_PLATFORMS;
+    const usesAuthoredCourse = options.platforms === undefined;
+    const platforms = options.platforms ?? LOOPING_COURSE_PLATFORMS;
+    const spikes = options.spikes ?? (usesAuthoredCourse ? LOOPING_COURSE_SPIKES : []);
+    const water =
+      options.water === undefined
+        ? usesAuthoredCourse
+          ? LOOPING_COURSE_WATER
+          : null
+        : options.water;
+    const courseLength =
+      options.courseLength === undefined
+        ? usesAuthoredCourse
+          ? COURSE_LENGTH
+          : null
+        : options.courseLength;
     const worldSpeed = options.worldSpeed ?? FIXED_WORLD_SPEED;
 
     validatePlatforms(platforms);
+    validateSpikes(spikes);
+    if (water) {
+      validateWater(water);
+    }
+
+    if (courseLength !== null && (!Number.isFinite(courseLength) || courseLength <= 0)) {
+      throw new RangeError("Course length must be a positive finite number or null");
+    }
 
     if (!Number.isFinite(worldSpeed) || worldSpeed <= 0) {
       throw new RangeError("World speed must be a positive finite number");
     }
 
-    this.platforms = platforms.map((platform) => ({ ...platform }));
+    this.platforms = platforms.map((platform) => Object.freeze({ ...platform }));
+    this.spikes = spikes.map((spike) => Object.freeze({ ...spike }));
+    this.water = water?.map((zone) => Object.freeze({ ...zone })) ?? water;
+    this.courseLength = courseLength;
     this.worldSpeed = worldSpeed;
     this.playerController = new FixedStepPlayerController(options.playerTuning);
     this.snapshotValue = this.createInitialSnapshot();
@@ -193,14 +332,29 @@ export class ChickenSimulation {
 
     const state = this.snapshotValue;
     const chicken = state.chicken;
+    const previousWorldX = state.distance + CHICKEN_SCREEN_X;
 
     state.tick += 1;
     state.elapsedMs = state.tick * FIXED_STEP_MS;
+    state.score = Math.floor(state.elapsedMs / SURVIVAL_SCORE_INTERVAL_MS);
     state.distance += this.worldSpeed * STEP_SECONDS;
+    state.courseDistance =
+      this.courseLength === null
+        ? state.distance
+        : wrapCourseCoordinate(state.distance, this.courseLength);
+    state.loopsCompleted =
+      this.courseLength === null ? 0 : Math.floor(state.distance / this.courseLength);
+
+    const chickenWorldX = state.distance + CHICKEN_SCREEN_X;
+    const nearbyPlatforms = repeatedInstances(
+      this.platforms,
+      chickenWorldX,
+      this.courseLength,
+    ) as readonly PlatformInstance[];
 
     if (chicken.grounded) {
-      const support = this.platforms.find((platform) =>
-        platformSupportsChicken(platform, state.distance, chicken.y),
+      const support = nearbyPlatforms.find((platform) =>
+        platformSupportsChicken(platform, chickenWorldX, chicken.y),
       );
 
       if (support) {
@@ -229,15 +383,14 @@ export class ChickenSimulation {
 
     if (!chicken.grounded) {
       const previousBottom = chicken.y + CHICKEN_BODY_HEIGHT / 2;
-
       const nextY = chicken.y + chicken.velocityY * STEP_SECONDS;
       const nextBottom = nextY + CHICKEN_BODY_HEIGHT / 2;
 
       const landing =
         chicken.velocityY >= 0
-          ? this.platforms
+          ? nearbyPlatforms
               .filter((platform) =>
-                canLandOnPlatform(platform, state.distance, previousBottom, nextBottom),
+                canLandOnPlatform(platform, chickenWorldX, previousBottom, nextBottom),
               )
               .sort((left, right) => left.top - right.top)[0]
           : undefined;
@@ -253,13 +406,34 @@ export class ChickenSimulation {
       }
     }
 
-    if (chicken.y + CHICKEN_BODY_HEIGHT / 2 >= WATER_DEATH_Y) {
-      state.phase = "dead";
-      state.deathReason = "water";
-      chicken.grounded = false;
-      chicken.supportingPlatformId = null;
-      chicken.animation = "death";
-      return this.snapshot();
+    const spike = (
+      repeatedInstances(this.spikes, chickenWorldX, this.courseLength) as readonly SpikeInstance[]
+    ).find((candidate) => intersectsSpike(candidate, previousWorldX, chickenWorldX, chicken.y));
+
+    if (spike) {
+      return this.endRun("hazard", spike.id);
+    }
+
+    const chickenBottom = chicken.y + CHICKEN_BODY_HEIGHT / 2;
+    const water =
+      this.water === null
+        ? chickenBottom >= WATER_DEATH_Y
+          ? { id: "water" }
+          : undefined
+        : (
+            repeatedInstances(
+              this.water,
+              chickenWorldX,
+              this.courseLength,
+            ) as readonly WaterInstance[]
+          ).find((zone) => isOverWater(zone, chickenWorldX, chickenBottom));
+
+    if (water) {
+      return this.endRun("water", water.id);
+    }
+
+    if (chickenBottom >= FALL_DEATH_Y) {
+      return this.endRun("fall", "void");
     }
 
     chicken.animation = chicken.grounded ? "run" : control.lift > 0 ? "flap" : "jump";
@@ -271,9 +445,15 @@ export class ChickenSimulation {
   }
 
   diagnostics(): SimulationDiagnostics {
+    const active = !this.destroyed;
+
     return {
-      activeBodies: this.destroyed ? 0 : 1,
+      activeBodies: active ? 1 : 0,
       activeTimers: 0,
+      collisionZones: active ? this.spikes.length + (this.water?.length ?? 1) + 1 : 0,
+      pooledObjects: active
+        ? this.platforms.length + this.spikes.length + (this.water?.length ?? 1)
+        : 0,
       destroyed: this.destroyed,
     };
   }
@@ -283,22 +463,31 @@ export class ChickenSimulation {
   }
 
   private createInitialSnapshot(): SimulationSnapshot {
-    const startingPlatform =
-      this.platforms.find((platform) => {
-        const chickenLeft = CHICKEN_SCREEN_X - CHICKEN_BODY_WIDTH / 2;
-        const chickenRight = CHICKEN_SCREEN_X + CHICKEN_BODY_WIDTH / 2;
-        return chickenRight > platform.x && chickenLeft < platform.x + platform.width;
-      }) ?? this.platforms[0];
+    const chickenWorldX = CHICKEN_SCREEN_X;
+    const startingPlatform = (
+      repeatedInstances(
+        this.platforms,
+        chickenWorldX,
+        this.courseLength,
+      ) as readonly PlatformInstance[]
+    ).find((platform) => {
+      const chickenLeft = chickenWorldX - CHICKEN_BODY_WIDTH / 2;
+      const chickenRight = chickenWorldX + CHICKEN_BODY_WIDTH / 2;
+      return chickenRight > platform.worldX && chickenLeft < platform.worldX + platform.width;
+    });
 
     if (!startingPlatform) {
-      throw new Error("The simulation needs at least one starting platform");
+      throw new Error("The simulation needs a platform beneath its starting position");
     }
 
     return {
       phase: "ready",
       tick: 0,
       elapsedMs: 0,
+      score: 0,
       distance: 0,
+      courseDistance: 0,
+      loopsCompleted: 0,
       chicken: {
         x: CHICKEN_SCREEN_X,
         y: startingPlatform.top - CHICKEN_BODY_HEIGHT / 2,
@@ -308,8 +497,26 @@ export class ChickenSimulation {
         animation: "idle",
       },
       deathReason: null,
+      collisionId: null,
       landingCount: 0,
     };
+  }
+
+  private endRun(reason: SimulationDeathReason, collisionId: string) {
+    const state = this.snapshotValue;
+
+    if (state.phase === "dead") {
+      return this.snapshot();
+    }
+
+    state.phase = "dead";
+    state.deathReason = reason;
+    state.collisionId = collisionId;
+    state.chicken.grounded = false;
+    state.chicken.supportingPlatformId = null;
+    state.chicken.velocityY = 0;
+    state.chicken.animation = "death";
+    return this.snapshot();
   }
 
   private assertAlive() {

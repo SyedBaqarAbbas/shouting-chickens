@@ -23,6 +23,7 @@ export const NEUTRAL_CONTROL_INTENT: Readonly<ControlIntent> = Object.freeze({
 export interface InputSource {
   start(): Promise<void>;
   latest(): ControlIntent;
+  resetRunState?(): void;
   stop(): void;
 }
 
