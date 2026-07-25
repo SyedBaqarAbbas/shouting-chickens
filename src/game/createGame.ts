@@ -60,6 +60,9 @@ class ChickenWorldScene extends Phaser.Scene {
   private phaseLabel!: Phaser.GameObjects.Text;
   private scoreLabel!: Phaser.GameObjects.Text;
   private courseLabel!: Phaser.GameObjects.Text;
+  private inputMeterFill!: Phaser.GameObjects.Rectangle;
+  private inputLevelLabel!: Phaser.GameObjects.Text;
+  private inputModeLabel!: Phaser.GameObjects.Text;
 
   constructor(
     private readonly host: PhaserFrameHost,
@@ -240,6 +243,39 @@ class ChickenWorldScene extends Phaser.Scene {
       .setOrigin(0.5)
       .setDepth(15);
 
+    this.add
+      .rectangle(116, 309, 200, 12, 0x07111f, 0.86)
+      .setOrigin(0, 0.5)
+      .setStrokeStyle(1, 0xd8e8f7, 0.72)
+      .setDepth(15);
+
+    this.inputMeterFill = this.add
+      .rectangle(117, 309, 0, 10, 0xf5d567)
+      .setOrigin(0, 0.5)
+      .setDepth(16);
+
+    this.inputLevelLabel = this.add
+      .text(LOGICAL_GAME_WIDTH / 2, 328, "INPUT 0%", {
+        color: "#ffffff",
+        fontFamily: "system-ui, sans-serif",
+        fontSize: "11px",
+        fontStyle: "700",
+        letterSpacing: 1,
+      })
+      .setOrigin(0.5)
+      .setDepth(16);
+
+    this.inputModeLabel = this.add
+      .text(LOGICAL_GAME_WIDTH / 2, 348, "KEYBOARD + TOUCH", {
+        color: "#f5d567",
+        fontFamily: "system-ui, sans-serif",
+        fontSize: "11px",
+        fontStyle: "700",
+        letterSpacing: 1,
+      })
+      .setOrigin(0.5)
+      .setDepth(16);
+
     this.phaseShade = this.add
       .rectangle(
         LOGICAL_GAME_WIDTH / 2,
@@ -266,6 +302,8 @@ class ChickenWorldScene extends Phaser.Scene {
   }
 
   private render(snapshot: SimulationSnapshot) {
+    const hud = this.host.hudSnapshot();
+
     for (const view of [...this.platformViews, ...this.spikeViews, ...this.waterViews]) {
       view.x = projectLoopingWorldX(
         Number(view.getData("worldX")),
@@ -287,6 +325,17 @@ class ChickenWorldScene extends Phaser.Scene {
         (snapshot.courseDistance / COURSE_LENGTH) * 100,
       )}%`,
     );
+    this.inputMeterFill.displayWidth = 198 * hud.normalizedInput;
+    this.inputLevelLabel.setText(`INPUT ${Math.round(hud.normalizedInput * 100)}%`);
+    this.inputModeLabel.setText(
+      hud.activeInput === "voice"
+        ? "ACTIVE: MICROPHONE"
+        : hud.activeInput === "keyboard-touch"
+          ? "ACTIVE: KEYBOARD + TOUCH"
+          : hud.configuredInput === "voice"
+            ? "READY: MICROPHONE + FALLBACK"
+            : "READY: KEYBOARD + TOUCH",
+    );
 
     const deathHeading =
       snapshot.deathReason === "hazard"
@@ -300,7 +349,7 @@ class ChickenWorldScene extends Phaser.Scene {
         : snapshot.phase === "dead"
           ? `${deathHeading}\nSurvived ${(snapshot.elapsedMs / 1_000).toFixed(
               1,
-            )}s · Score ${snapshot.score}\nTap / Space / ↑ to restart`
+            )}s · Score ${snapshot.score}\nRun complete`
           : "";
 
     this.phaseShade.setVisible(Boolean(phaseCopy));
@@ -348,6 +397,9 @@ function mountPhaserGame({ parent, renderResolution, host }: Parameters<PhaserMo
     parent,
     width: LOGICAL_GAME_WIDTH * renderResolution,
     height: LOGICAL_GAME_HEIGHT * renderResolution,
+    audio: {
+      noAudio: true,
+    },
     transparent: true,
     disableContextMenu: true,
     render: {

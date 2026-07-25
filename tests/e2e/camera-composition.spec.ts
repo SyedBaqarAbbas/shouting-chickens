@@ -73,6 +73,16 @@ async function cameraHarness(page: Page): Promise<CameraHarnessState> {
 }
 
 async function expectMountedGame(page: Page) {
+  const fallback = page.getByRole("button", { name: "Use keyboard or touch" });
+  if (await fallback.isVisible().catch(() => false)) {
+    await fallback.click();
+    await page.getByRole("button", { name: "Start run" }).click();
+  } else if ((await page.getByTestId("game-surface").count()) === 0) {
+    await fallback.waitFor();
+    await fallback.click();
+    await page.getByRole("button", { name: "Start run" }).click();
+  }
+
   const surface = page.getByTestId("game-surface");
   await expect(surface).toHaveAttribute("data-runtime-state", "mounted");
   await expect(surface).toHaveAttribute("data-simulation-phase", "running");
@@ -187,18 +197,27 @@ for (const viewport of [
 
     const phone = page.locator(".game-phone");
     const control = page.locator(".camera-control");
+    const cameraToggle = page.locator(".camera-toggle");
+    const pauseButton = page.getByRole("button", { name: "Pause run" });
     const heading = page.locator(".game-heading");
+    const title = heading.locator("h1");
     const headingEyebrow = heading.locator(".eyebrow");
     const surface = page.getByTestId("game-surface");
     const phoneBox = await phone.boundingBox();
     const controlBox = await control.boundingBox();
+    const cameraToggleBox = await cameraToggle.boundingBox();
+    const pauseButtonBox = await pauseButton.boundingBox();
     const headingBox = await heading.boundingBox();
+    const titleBox = await title.boundingBox();
     const eyebrowBox = await headingEyebrow.boundingBox();
     const surfaceBox = await surface.boundingBox();
 
     expect(phoneBox).not.toBeNull();
     expect(controlBox).not.toBeNull();
+    expect(cameraToggleBox).not.toBeNull();
+    expect(pauseButtonBox).not.toBeNull();
     expect(headingBox).not.toBeNull();
+    expect(titleBox).not.toBeNull();
     expect(eyebrowBox).not.toBeNull();
     expect(surfaceBox).not.toBeNull();
     expect(controlBox!.x).toBeGreaterThanOrEqual(phoneBox!.x + 9);
@@ -207,6 +226,13 @@ for (const viewport of [
       phoneBox!.x + phoneBox!.width - 9,
     );
     expect(controlBox!.y + controlBox!.height).toBeLessThanOrEqual(eyebrowBox!.y - 4);
+    expect(cameraToggleBox!.height).toBeGreaterThanOrEqual(44);
+    expect(cameraToggleBox!.width).toBeGreaterThanOrEqual(44);
+    expect(pauseButtonBox!.height).toBeGreaterThanOrEqual(44);
+    expect(pauseButtonBox!.width).toBeGreaterThanOrEqual(44);
+    expect(pauseButtonBox!.y + pauseButtonBox!.height).toBeLessThanOrEqual(eyebrowBox!.y - 4);
+    expect(await title.evaluate((element) => getComputedStyle(element).whiteSpace)).toBe("nowrap");
+    expect(titleBox!.height).toBeLessThanOrEqual(34);
     const phaserHintTop = surfaceBox!.y + (180 / 768) * surfaceBox!.height;
     expect(headingBox!.y + headingBox!.height).toBeLessThanOrEqual(phaserHintTop);
     await expect(page.locator('meta[name="viewport"]')).toHaveAttribute(

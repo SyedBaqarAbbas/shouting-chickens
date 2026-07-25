@@ -1,6 +1,16 @@
 import { expect, test } from "@playwright/test";
 
 async function expectMountedWorld(page: import("@playwright/test").Page) {
+  const fallback = page.getByRole("button", { name: "Use keyboard or touch" });
+  if (await fallback.isVisible().catch(() => false)) {
+    await fallback.click();
+    await page.getByRole("button", { name: "Start run" }).click();
+  } else if ((await page.getByTestId("game-surface").count()) === 0) {
+    await fallback.waitFor();
+    await fallback.click();
+    await page.getByRole("button", { name: "Start run" }).click();
+  }
+
   const surface = page.getByTestId("game-surface");
 
   await expect(surface).toHaveAttribute("data-runtime-state", "mounted");
@@ -13,22 +23,35 @@ async function expectMountedWorld(page: import("@playwright/test").Page) {
 
 for (const viewport of [
   { name: "phone", width: 390, height: 844 },
+  { name: "compact phone", width: 320, height: 568 },
   { name: "desktop", width: 1280, height: 900 },
 ]) {
   test(`keeps one centered portrait world at the ${viewport.name} viewport`, async ({ page }) => {
     await page.setViewportSize(viewport);
     await page.goto("/");
 
-    await expect(page.getByRole("heading", { name: "Shouting Chickens" })).toBeVisible();
-    await expect(page.getByText("Deterministic 60 Hz world")).toBeVisible();
     const surface = await expectMountedWorld(page);
+    await expect(page.getByRole("heading", { name: "Shouting Chickens" })).toBeVisible();
+    await expect(page.getByText("Keyboard + touch ready")).toBeVisible();
     const box = await surface.boundingBox();
+    const pauseBox = await page.getByRole("button", { name: "Pause run" }).boundingBox();
+    const cameraBox = await page.locator(".camera-toggle").boundingBox();
 
     expect(box).not.toBeNull();
+    expect(pauseBox).not.toBeNull();
+    expect(cameraBox).not.toBeNull();
     expect(box!.width / box!.height).toBeCloseTo(432 / 768, 2);
     expect(box!.width).toBeLessThanOrEqual(432);
     expect(box!.height).toBeLessThanOrEqual(768);
     expect(Math.abs(box!.x + box!.width / 2 - viewport.width / 2)).toBeLessThan(2);
+    expect(box!.x).toBeGreaterThanOrEqual(0);
+    expect(box!.x + box!.width).toBeLessThanOrEqual(viewport.width);
+    expect(box!.y).toBeGreaterThanOrEqual(0);
+    expect(box!.y + box!.height).toBeLessThanOrEqual(viewport.height);
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+    ).toBe(true);
+    expect(pauseBox!.x + pauseBox!.width).toBeLessThanOrEqual(cameraBox!.x);
   });
 }
 
@@ -95,7 +118,8 @@ test("ends a run once and completely restarts the fixed course", async ({ page }
     expect(ended.elapsedMs).toBeGreaterThan(0);
     expect(ended.score).toBe(Math.floor(ended.elapsedMs / 100));
 
-    await page.keyboard.press("Space");
+    await expect(page.getByRole("heading", { name: "Nice flight" })).toBeFocused();
+    await page.getByRole("button", { name: "Restart run" }).click();
     await expect(surface).toHaveAttribute("data-simulation-phase", "running");
     await expect(surface).toHaveAttribute("data-death-reason", "");
     await expect(surface).toHaveAttribute("data-collision-id", "");
@@ -112,10 +136,11 @@ test("ends a run once and completely restarts the fixed course", async ({ page }
 });
 
 test("pauses behind a rotate message in compact landscape", async ({ page }) => {
-  await page.setViewportSize({ width: 844, height: 390 });
+  await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
   const surface = await expectMountedWorld(page);
 
+  await page.setViewportSize({ width: 844, height: 390 });
   await expect(page.getByText("Rotate your device to play")).toBeVisible();
   await expect(surface).toHaveAttribute("data-orientation", "landscape");
   await expect(surface).toHaveAttribute("data-simulation-phase", "paused");

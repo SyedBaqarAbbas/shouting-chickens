@@ -1,8 +1,13 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { ManualClock, ScriptedInputSource, type InputSource } from "../../core";
 import { ChickenSimulation, type PlatformDefinition } from "../simulation";
-import { CombinedInputSource, KeyboardInputSource, TouchInputSource } from "./BrowserInputSources";
+import {
+  CombinedInputSource,
+  KeyboardInputSource,
+  OptionalInputSource,
+  TouchInputSource,
+} from "./BrowserInputSources";
 
 const ENDLESS_PLATFORM: readonly PlatformDefinition[] = [
   { id: "endless", x: -500, width: 10_000, top: 584 },
@@ -51,6 +56,37 @@ describe("browser ControlIntent sources", () => {
     expect(source.diagnostics()).toEqual({ activeListeners: 0 });
     target.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp" }));
     expect(source.latest()).toEqual({ atMs: 0, jumpPressed: false, lift: 0 });
+  });
+
+  it("does not turn Space on an interactive control into gameplay input", async () => {
+    const clock = new ManualClock(40);
+    const button = document.createElement("button");
+    document.body.append(button);
+    const source = new KeyboardInputSource(clock, window);
+    await source.start();
+
+    const down = new KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      key: " ",
+    });
+    button.dispatchEvent(down);
+    button.dispatchEvent(
+      new KeyboardEvent("keyup", {
+        bubbles: true,
+        cancelable: true,
+        key: " ",
+      }),
+    );
+
+    expect(down.defaultPrevented).toBe(false);
+    expect(source.latest()).toEqual({
+      atMs: 40,
+      jumpPressed: false,
+      lift: 0,
+    });
+    source.stop();
+    button.remove();
   });
 
   it("turns a touch press into one edge and clears listeners on stop", async () => {
@@ -122,6 +158,37 @@ describe("browser ControlIntent sources", () => {
     keyboardTarget.dispatchEvent(new KeyboardEvent("keyup", { key: " " }));
     keyboardTarget.dispatchEvent(new KeyboardEvent("keydown", { key: " " }));
     expect(source.latest().jumpPressed).toBe(true);
+    source.stop();
+  });
+
+  it("reports the strongest actual contributor independently from combined lift", async () => {
+    const clock = new ManualClock(100);
+    const keyboardTarget = new EventTarget();
+    const voice: InputSource = {
+      async start() {},
+      latest() {
+        return { atMs: 100, jumpPressed: false, lift: 0 };
+      },
+      getFeedback() {
+        return { normalizedLevel: 0.4, provenance: "voice" };
+      },
+      stop() {},
+    };
+    const source = new CombinedInputSource([new KeyboardInputSource(clock, keyboardTarget), voice]);
+    await source.start();
+
+    expect(source.latest()).toMatchObject({ jumpPressed: false, lift: 0 });
+    expect(source.getFeedback()).toEqual({
+      normalizedLevel: 0.4,
+      provenance: "voice",
+    });
+
+    keyboardTarget.dispatchEvent(new KeyboardEvent("keydown", { key: " " }));
+    expect(source.latest()).toMatchObject({ jumpPressed: true, lift: 1 });
+    expect(source.getFeedback()).toEqual({
+      normalizedLevel: 1,
+      provenance: "keyboard-touch",
+    });
     source.stop();
   });
 
@@ -215,5 +282,36 @@ describe("browser ControlIntent sources", () => {
     await expect(combined.start()).rejects.toThrow("listener setup failed");
     expect(stopCount).toBe(1);
     expect(combined.latest()).toEqual({ atMs: 0, jumpPressed: false, lift: 0 });
+  });
+
+  it("keeps required fallback sources active when an optional source rejects", async () => {
+    const fallback = new ScriptedInputSource(new ManualClock(), [
+      { atMs: 0, jumpPressed: true, lift: 1 },
+    ]);
+    const optionalFailure = new Error("voice setup failed");
+    const voice: InputSource = {
+      async start() {
+        throw optionalFailure;
+      },
+      latest() {
+        return { atMs: 0, jumpPressed: false, lift: 0 };
+      },
+      stop() {},
+    };
+    const unavailable = vi.fn();
+    const combined = new CombinedInputSource([
+      fallback,
+      new OptionalInputSource(voice, unavailable),
+    ]);
+
+    await combined.start();
+
+    expect(unavailable).toHaveBeenCalledExactlyOnceWith(optionalFailure);
+    expect(combined.latest()).toEqual({
+      atMs: 0,
+      jumpPressed: true,
+      lift: 1,
+    });
+    combined.stop();
   });
 });

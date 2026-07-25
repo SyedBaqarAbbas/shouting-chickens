@@ -185,9 +185,10 @@ textarea {
 
 .game-heading h1 {
   margin: 4px 0 7px;
-  font-size: clamp(2rem, 8vw, 2.35rem);
+  font-size: clamp(1.65rem, 7vw, 2rem);
   letter-spacing: -0.045em;
   line-height: 0.95;
+  white-space: nowrap;
 }
 
 .game-heading p {
@@ -214,6 +215,10 @@ textarea {
 
 .game-surface[data-orientation="landscape"] {
   z-index: 10;
+}
+
+.game-surface[data-blocked="true"] {
+  pointer-events: none;
 }
 
 .game-surface canvas {
@@ -247,7 +252,7 @@ textarea {
 
 .camera-toggle {
   display: inline-flex;
-  min-height: 42px;
+  min-height: 44px;
   align-items: center;
   justify-content: center;
   gap: 8px;
@@ -307,8 +312,7 @@ textarea {
   white-space: nowrap;
 }
 
-.rotate-prompt,
-.game-mount-error {
+.rotate-prompt {
   position: absolute;
   z-index: 30;
   inset: 0;
@@ -346,9 +350,243 @@ textarea {
   line-height: 1.45;
 }
 
-.game-mount-error {
+.flow-card {
+  position: absolute;
+  z-index: 25;
+  inset: max(14px, env(safe-area-inset-top)) max(14px, env(safe-area-inset-right))
+    max(14px, env(safe-area-inset-bottom)) max(14px, env(safe-area-inset-left));
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: center;
+  padding: clamp(22px, 7vw, 34px);
+  overflow-y: auto;
+  border: 1px solid rgb(255 255 255 / 16%);
+  border-radius: 22px;
+  color: #f8fbff;
+  background:
+    radial-gradient(circle at 12% 0%, rgb(245 213 103 / 13%), transparent 35%),
+    linear-gradient(160deg, rgb(11 26 44 / 97%), rgb(3 9 18 / 98%));
+  box-shadow: 0 18px 54px rgb(0 0 0 / 42%);
+  overscroll-behavior: contain;
+}
+
+.flow-card--modal {
+  inset: max(56px, calc(env(safe-area-inset-top) + 20px))
+    max(18px, calc(env(safe-area-inset-right) + 14px))
+    max(56px, calc(env(safe-area-inset-bottom) + 20px))
+    max(18px, calc(env(safe-area-inset-left) + 14px));
+  justify-content: center;
+}
+
+.flow-card--countdown {
+  text-align: center;
+}
+
+.flow-card h2,
+.flow-card h3,
+.flow-card p {
+  margin-top: 0;
+}
+
+.flow-card h2 {
+  margin-bottom: 14px;
+  font-size: clamp(1.65rem, 7vw, 2.1rem);
+  letter-spacing: -0.04em;
+  line-height: 1.05;
+}
+
+.flow-card h2:focus {
+  outline: none;
+}
+
+.flow-card h3 {
+  margin-bottom: 8px;
+  color: #f5d567;
+  font-size: 1rem;
+}
+
+.flow-card p {
+  color: rgb(235 244 255 / 78%);
+  line-height: 1.5;
+}
+
+.flow-step {
+  margin-bottom: 8px;
+  color: #f5d567 !important;
+  font-size: 0.7rem;
+  font-weight: 850;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.safe-copy {
+  padding: 10px 12px;
+  border-left: 3px solid #62dc94;
+  border-radius: 8px;
+  color: #e8fff0 !important;
+  background: rgb(98 220 148 / 9%);
+  font-weight: 650;
+}
+
+.flow-alert {
+  padding: 11px 12px;
+  border: 1px solid rgb(255 164 112 / 48%);
+  border-radius: 10px;
+  color: #fff3e9 !important;
+  background: rgb(126 48 20 / 32%);
+}
+
+.flow-actions {
   display: grid;
-  font-weight: 700;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.primary-action,
+.secondary-action,
+.pause-button {
+  min-width: 44px;
+  min-height: 48px;
+  border-radius: 13px;
+  cursor: pointer;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.primary-action {
+  border: 1px solid #f5d567;
+  color: #101722;
+  background: #f5d567;
+}
+
+.secondary-action,
+.pause-button {
+  border: 1px solid rgb(255 255 255 / 24%);
+  color: #f8fbff;
+  background: rgb(7 18 32 / 84%);
+}
+
+.primary-action:hover:not(:disabled),
+.secondary-action:hover:not(:disabled),
+.pause-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  filter: brightness(1.08);
+}
+
+.primary-action:focus-visible,
+.secondary-action:focus-visible,
+.pause-button:focus-visible {
+  outline: 3px solid #ffffff;
+  outline-offset: 3px;
+}
+
+.primary-action:disabled,
+.secondary-action:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.control-help {
+  margin: 14px 0 0 !important;
+  font-size: 0.78rem;
+  text-align: center;
+}
+
+.calibration-meter {
+  display: grid;
+  gap: 8px;
+  margin: 5px 0 18px;
+  padding: 14px;
+  border: 1px solid rgb(255 255 255 / 14%);
+  border-radius: 12px;
+  background: rgb(2 8 16 / 36%);
+  font-size: 0.82rem;
+  font-weight: 750;
+}
+
+.calibration-meter progress {
+  width: 100%;
+  height: 16px;
+  accent-color: #f5d567;
+}
+
+.voice-test {
+  padding: 12px;
+  border: 1px solid rgb(255 255 255 / 14%);
+  border-radius: 12px;
+  background: rgb(2 8 16 / 38%);
+}
+
+.voice-test p {
+  margin: 9px 0 0;
+  font-size: 0.82rem;
+}
+
+.countdown-number {
+  display: block;
+  margin: 5px 0 16px;
+  color: #f5d567;
+  font-size: clamp(4rem, 24vw, 7rem);
+  font-weight: 900;
+  line-height: 0.9;
+  text-shadow: 0 8px 32px rgb(245 213 103 / 30%);
+}
+
+.play-controls {
+  position: absolute;
+  z-index: 18;
+  top: max(14px, env(safe-area-inset-top));
+  left: max(14px, env(safe-area-inset-left));
+}
+
+.pause-button {
+  min-height: 44px;
+  padding: 8px 13px;
+  backdrop-filter: blur(14px);
+}
+
+.results-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 4px 0 20px;
+}
+
+.results-grid div {
+  padding: 12px 8px;
+  border: 1px solid rgb(255 255 255 / 14%);
+  border-radius: 12px;
+  background: rgb(2 8 16 / 42%);
+  text-align: center;
+}
+
+.results-grid dt {
+  color: rgb(235 244 255 / 64%);
+  font-size: 0.68rem;
+  font-weight: 750;
+  text-transform: uppercase;
+}
+
+.results-grid dd {
+  margin: 5px 0 0;
+  font-size: 1.05rem;
+  font-weight: 850;
+  text-transform: capitalize;
+}
+
+.accessible-game-status {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .bootstrap-note {
@@ -381,12 +619,17 @@ textarea {
 
 @media (max-height: 620px) {
   .game-phone {
-    width: auto;
-    height: calc(100dvh - 24px);
+    width: min(100%, calc((100dvh - 24px) * 9 / 16));
+    height: auto;
   }
 
   .game-heading {
     padding-top: 58px;
+  }
+
+  .flow-card {
+    justify-content: flex-start;
+    padding: 20px;
   }
 }
 
@@ -404,8 +647,8 @@ textarea {
   }
 
   .camera-toggle {
-    min-height: 40px;
-    padding: 8px 11px;
+    min-height: 44px;
+    padding: 10px 11px;
     font-size: 0.71rem;
   }
 

@@ -1,10 +1,13 @@
 import { useEffect, useState } from "react";
 
+import { createGameRuntime } from "../game/createGame";
 import { createBrowserMediaSession, type BrowserMediaSession } from "../platform/media";
-import { CameraComposition } from "./CameraComposition";
-import { GameSurface } from "./GameSurface";
+import { GameExperience, type GameExperienceProps } from "./GameExperience";
 
-interface AppProps {
+export interface AppProps extends Pick<
+  GameExperienceProps,
+  "countdownStepMs" | "createCalibrationCapture" | "createRuntime" | "createVoiceInput"
+> {
   readonly createMediaSession?: () => BrowserMediaSession;
 }
 
@@ -29,7 +32,13 @@ function useCompactLandscape() {
   return landscape;
 }
 
-export function App({ createMediaSession = createBrowserMediaSession }: AppProps) {
+export function App({
+  countdownStepMs,
+  createCalibrationCapture,
+  createMediaSession = createBrowserMediaSession,
+  createRuntime = createGameRuntime,
+  createVoiceInput,
+}: AppProps) {
   const [mediaSession, setMediaSession] = useState<BrowserMediaSession | null>(null);
   const landscape = useCompactLandscape();
 
@@ -53,22 +62,28 @@ export function App({ createMediaSession = createBrowserMediaSession }: AppProps
     <main className="app-shell">
       <section
         className="game-phone"
-        aria-labelledby="game-title"
+        aria-label="Shouting Chickens"
         data-orientation={landscape ? "landscape" : "portrait"}
       >
-        <CameraComposition session={mediaSession} hidden={landscape} />
-
-        <header className="game-heading">
-          <p className="eyebrow">Voice-controlled platformer</p>
-          <h1 id="game-title">Shouting Chickens</h1>
-        </header>
-
-        <GameSurface landscape={landscape} />
-
-        <footer className="bootstrap-note">
-          <span className="status-dot" aria-hidden="true" />
-          <span>Deterministic 60 Hz world</span>
-        </footer>
+        {mediaSession ? (
+          <GameExperience
+            countdownStepMs={countdownStepMs}
+            createCalibrationCapture={createCalibrationCapture}
+            createRuntime={createRuntime}
+            createVoiceInput={createVoiceInput}
+            landscape={landscape}
+            session={mediaSession}
+          />
+        ) : (
+          <section className="flow-card" aria-labelledby="loading-title">
+            <p className="flow-step">First-time setup</p>
+            <h1 id="game-title">Shouting Chickens</h1>
+            <h2 id="loading-title">Checking microphone support…</h2>
+            <button type="button" className="primary-action" disabled>
+              Enable microphone
+            </button>
+          </section>
+        )}
 
         <div className="rotate-prompt" role="status" aria-live="polite" hidden={!landscape}>
           <span aria-hidden="true">↻</span>

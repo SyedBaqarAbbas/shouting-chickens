@@ -14,6 +14,14 @@ export type ControlIntent = {
   lift: number;
 };
 
+export type ControlMode = "voice" | "keyboard-touch";
+export type InputProvenance = ControlMode | "none";
+
+export type InputFeedback = {
+  normalizedLevel: number;
+  provenance: InputProvenance;
+};
+
 export const NEUTRAL_CONTROL_INTENT: Readonly<ControlIntent> = Object.freeze({
   atMs: 0,
   jumpPressed: false,
@@ -23,6 +31,7 @@ export const NEUTRAL_CONTROL_INTENT: Readonly<ControlIntent> = Object.freeze({
 export interface InputSource {
   start(): Promise<void>;
   latest(): ControlIntent;
+  getFeedback?(): InputFeedback;
   resetRunState?(): void;
   diagnostics?(): { activeListeners: number };
   stop(): void;
@@ -85,6 +94,7 @@ export type GameEventListener = (event: GameEvent) => void;
 export interface GameRuntime {
   mount(container: HTMLElement): Promise<void>;
   startRun(options: RunOptions): void;
+  setActiveInput(mode: ControlMode): void;
   pause(): void;
   resume(): void;
   restart(): void;

@@ -3,48 +3,33 @@ import {
   type CalibrationProfile,
   type Clock,
   type ControlIntent,
+  type InputFeedback,
   type InputSource,
   type VoiceFrame,
 } from "../../core/contracts";
-import {
-  energyScalarFromSamples,
-  parseEnergyScalarFrame,
-  type EnergyScalarFrame,
-} from "../../input";
+import type { EnergyScalarFrame } from "../../input";
 import {
   VoiceIntentProcessor,
   type VoiceProcessingOptions,
 } from "../../input/VoiceIntentProcessor";
-import type { BrowserMediaSession, MicrophoneAudioGraph } from "../media/BrowserMediaSession";
+import type { BrowserMediaSession } from "../media/BrowserMediaSession";
+import {
+  ANALYSER_FFT_SIZE,
+  BrowserScalarEnergySource,
+  DEFAULT_WORKLET_MODULE_URL,
+  VOICE_RMS_PROCESSOR_NAME,
+  type VoiceEnergyDependencies,
+  type VoiceEnergyMode,
+} from "./BrowserScalarEnergySource";
 
-const DEFAULT_WORKLET_MODULE_URL = "/audio/voice-rms-processor.js";
-const VOICE_RMS_PROCESSOR_NAME = "voice-rms-processor";
-const ANALYSER_FFT_SIZE = 256;
-
-export type VoiceEnergyMode = "audio-worklet" | "analyser";
-
-export interface VoiceInputDependencies {
-  readonly workletModuleUrl?: string;
-  readonly createAudioWorkletNode?: (
-    context: AudioContext,
-    name: string,
-    options: AudioWorkletNodeOptions,
-  ) => AudioWorkletNode;
-  readonly requestAnimationFrame?: (callback: FrameRequestCallback) => number;
-  readonly cancelAnimationFrame?: (handle: number) => void;
-}
-
-interface EnergyCapture {
-  readonly mode: VoiceEnergyMode;
-  start(sink: (frame: EnergyScalarFrame) => void): Promise<void>;
-  stop(): void;
-}
+export type VoiceInputDependencies = VoiceEnergyDependencies;
 
 export class BrowserVoiceInputSource implements InputSource {
   private readonly processor: VoiceIntentProcessor;
+  private readonly energySource: BrowserScalarEnergySource;
   private current: ControlIntent = { ...NEUTRAL_CONTROL_INTENT };
   private currentVoice: VoiceFrame | null = null;
-  private capture: EnergyCapture | null = null;
+  private running = false;
   private unsubscribeSession: (() => void) | null = null;
   private generation = 0;
   private startPromise: Promise<void> | null = null;
@@ -53,14 +38,15 @@ export class BrowserVoiceInputSource implements InputSource {
     private readonly session: BrowserMediaSession,
     private readonly clock: Clock,
     profile: CalibrationProfile,
-    private readonly dependencies: VoiceInputDependencies = {},
+    dependencies: VoiceInputDependencies = {},
     processingOptions: VoiceProcessingOptions = {},
   ) {
     this.processor = new VoiceIntentProcessor(profile, processingOptions);
+    this.energySource = new BrowserScalarEnergySource(session, dependencies);
   }
 
   get mode(): VoiceEnergyMode | null {
-    return this.capture?.mode ?? null;
+    return this.energySource.mode;
   }
 
   getLatestVoiceFrame(): VoiceFrame | null {
@@ -68,7 +54,7 @@ export class BrowserVoiceInputSource implements InputSource {
   }
 
   start(): Promise<void> {
-    if (this.capture) {
+    if (this.running) {
       return Promise.resolve();
     }
     if (this.startPromise) {
@@ -94,7 +80,7 @@ export class BrowserVoiceInputSource implements InputSource {
   }
 
   latest(): ControlIntent {
-    if (!this.capture) {
+    if (!this.running) {
       return { ...NEUTRAL_CONTROL_INTENT };
     }
 
@@ -103,30 +89,42 @@ export class BrowserVoiceInputSource implements InputSource {
     return intent;
   }
 
-  stop(): void {
-    ++this.generation;
-    this.startPromise = null;
-    this.capture?.stop();
-    this.capture = null;
-    this.unsubscribeSession?.();
-    this.unsubscribeSession = null;
+  getFeedback(): InputFeedback {
+    const normalizedLevel = this.running ? (this.currentVoice?.normalizedLevel ?? 0) : 0;
+    return {
+      normalizedLevel,
+      provenance: normalizedLevel > 0 ? "voice" : "none",
+    };
+  }
+
+  resetRunState(): void {
     this.processor.reset();
-    this.current = { ...NEUTRAL_CONTROL_INTENT };
+    this.current = {
+      ...NEUTRAL_CONTROL_INTENT,
+      atMs: this.running ? this.clock.now() : 0,
+    };
     this.currentVoice = null;
   }
 
+  stop(): void {
+    ++this.generation;
+    this.startPromise = null;
+    this.energySource.stop();
+    this.running = false;
+    this.unsubscribeSession?.();
+    this.unsubscribeSession = null;
+    this.resetRunState();
+  }
+
   private async startGeneration(generation: number): Promise<void> {
-    const graph = this.session.getMicrophoneAudioGraph();
-    if (!graph) {
+    if (!this.session.getMicrophoneAudioGraph()) {
       throw new Error("Microphone capture must be active before voice processing starts.");
     }
 
     this.processor.reset();
-    let capture = await createEnergyCapture(this.session, graph, this.dependencies);
     const sink = (energy: EnergyScalarFrame) => {
       if (
         this.generation !== generation ||
-        this.capture !== capture ||
         this.session.getSnapshot().microphone.status !== "active"
       ) {
         return;
@@ -141,29 +139,13 @@ export class BrowserVoiceInputSource implements InputSource {
       };
       this.currentVoice = processed.voice;
     };
-    try {
-      await capture.start(sink);
-    } catch (error) {
-      capture.stop();
-      if (capture.mode !== "audio-worklet") {
-        throw error;
-      }
-
-      capture = new AnalyserEnergyCapture(this.session, graph, this.dependencies);
-      try {
-        await capture.start(sink);
-      } catch (fallbackError) {
-        capture.stop();
-        throw fallbackError;
-      }
-    }
+    await this.energySource.start(sink);
 
     if (this.generation !== generation) {
-      capture.stop();
       return;
     }
 
-    this.capture = capture;
+    this.running = true;
     this.current = {
       ...NEUTRAL_CONTROL_INTENT,
       atMs: this.clock.now(),
@@ -175,12 +157,7 @@ export class BrowserVoiceInputSource implements InputSource {
   private readonly handleSessionState = () => {
     const status = this.session.getSnapshot().microphone.status;
     if (status === "suspended") {
-      this.processor.reset();
-      this.current = {
-        ...NEUTRAL_CONTROL_INTENT,
-        atMs: this.clock.now(),
-      };
-      this.currentVoice = null;
+      this.resetRunState();
       return;
     }
 
@@ -197,181 +174,5 @@ export class BrowserVoiceInputSource implements InputSource {
   };
 }
 
-async function createEnergyCapture(
-  session: BrowserMediaSession,
-  graph: MicrophoneAudioGraph,
-  dependencies: VoiceInputDependencies,
-): Promise<EnergyCapture> {
-  const audioWorklet = getAudioWorklet(graph.context);
-  const createNode = resolveWorkletNodeFactory(dependencies.createAudioWorkletNode);
-
-  if (audioWorklet && createNode) {
-    try {
-      await audioWorklet.addModule(dependencies.workletModuleUrl ?? DEFAULT_WORKLET_MODULE_URL);
-      return new WorkletEnergyCapture(session, graph, createNode);
-    } catch {
-      // A browser can expose AudioWorklet while blocking its module. The
-      // analyser path preserves the exact scalar contract without audible output.
-    }
-  }
-
-  return new AnalyserEnergyCapture(session, graph, dependencies);
-}
-
-class WorkletEnergyCapture implements EnergyCapture {
-  readonly mode = "audio-worklet";
-  private node: AudioWorkletNode | null = null;
-  private unregisterNode: (() => void) | null = null;
-  private messageListener: ((event: MessageEvent<unknown>) => void) | null = null;
-
-  constructor(
-    private readonly session: BrowserMediaSession,
-    private readonly graph: MicrophoneAudioGraph,
-    private readonly createNode: NonNullable<VoiceInputDependencies["createAudioWorkletNode"]>,
-  ) {}
-
-  async start(sink: (frame: EnergyScalarFrame) => void): Promise<void> {
-    const node = this.createNode(this.graph.context, VOICE_RMS_PROCESSOR_NAME, {
-      channelCount: 1,
-      channelCountMode: "explicit",
-      numberOfInputs: 1,
-      numberOfOutputs: 0,
-    });
-    const messageListener = (event: MessageEvent<unknown>) => {
-      const frame = parseEnergyScalarFrame(event.data);
-      if (frame) {
-        sink(frame);
-      }
-    };
-
-    this.node = node;
-    this.messageListener = messageListener;
-    node.port.addEventListener("message", messageListener);
-    node.port.start();
-
-    try {
-      this.unregisterNode = this.session.registerMicrophoneNode(node);
-      this.graph.source.connect(node);
-    } catch (error) {
-      this.stop();
-      throw error;
-    }
-  }
-
-  stop(): void {
-    const node = this.node;
-    if (!node) {
-      return;
-    }
-
-    if (this.messageListener) {
-      node.port.removeEventListener("message", this.messageListener);
-    }
-    node.port.close();
-    disconnectSourceFromNode(this.graph.source, node);
-    this.unregisterNode?.();
-    this.unregisterNode = null;
-    this.messageListener = null;
-    this.node = null;
-  }
-}
-
-class AnalyserEnergyCapture implements EnergyCapture {
-  readonly mode = "analyser";
-  private analyser: AnalyserNode | null = null;
-  private buffer: Float32Array<ArrayBuffer> | null = null;
-  private frameHandle: number | null = null;
-  private unregisterNode: (() => void) | null = null;
-  private running = false;
-  private readonly requestFrame: (callback: FrameRequestCallback) => number;
-  private readonly cancelFrame: (handle: number) => void;
-
-  constructor(
-    private readonly session: BrowserMediaSession,
-    private readonly graph: MicrophoneAudioGraph,
-    dependencies: VoiceInputDependencies,
-  ) {
-    this.requestFrame =
-      dependencies.requestAnimationFrame ?? globalThis.requestAnimationFrame?.bind(globalThis);
-    this.cancelFrame =
-      dependencies.cancelAnimationFrame ?? globalThis.cancelAnimationFrame?.bind(globalThis);
-
-    if (!this.requestFrame || !this.cancelFrame) {
-      throw new Error("Animation frame scheduling is unavailable for analyser input.");
-    }
-  }
-
-  async start(sink: (frame: EnergyScalarFrame) => void): Promise<void> {
-    const analyser = this.graph.context.createAnalyser();
-    analyser.fftSize = ANALYSER_FFT_SIZE;
-    analyser.smoothingTimeConstant = 0;
-    const buffer = new Float32Array(analyser.fftSize);
-
-    this.analyser = analyser;
-    this.buffer = buffer;
-    this.running = true;
-
-    try {
-      this.unregisterNode = this.session.registerMicrophoneNode(analyser);
-      this.graph.source.connect(analyser);
-    } catch (error) {
-      this.stop();
-      throw error;
-    }
-
-    const sample = () => {
-      if (!this.running || this.analyser !== analyser || this.buffer !== buffer) {
-        return;
-      }
-
-      analyser.getFloatTimeDomainData(buffer);
-      sink(energyScalarFromSamples(buffer));
-      this.frameHandle = this.requestFrame(sample);
-    };
-    this.frameHandle = this.requestFrame(sample);
-  }
-
-  stop(): void {
-    this.running = false;
-    if (this.frameHandle !== null) {
-      this.cancelFrame(this.frameHandle);
-      this.frameHandle = null;
-    }
-
-    if (this.analyser) {
-      disconnectSourceFromNode(this.graph.source, this.analyser);
-    }
-    this.unregisterNode?.();
-    this.unregisterNode = null;
-    this.analyser = null;
-    this.buffer = null;
-  }
-}
-
-function getAudioWorklet(context: AudioContext): AudioWorklet | undefined {
-  return (context as AudioContext & { audioWorklet?: AudioWorklet }).audioWorklet;
-}
-
-function resolveWorkletNodeFactory(
-  factory: VoiceInputDependencies["createAudioWorkletNode"],
-): VoiceInputDependencies["createAudioWorkletNode"] {
-  if (factory) {
-    return factory;
-  }
-
-  if (typeof globalThis.AudioWorkletNode !== "function") {
-    return undefined;
-  }
-
-  return (context, name, options) => new AudioWorkletNode(context, name, options);
-}
-
-function disconnectSourceFromNode(source: MediaStreamAudioSourceNode, node: AudioNode): void {
-  try {
-    source.disconnect(node);
-  } catch {
-    // The media session may already have disconnected its source during close.
-  }
-}
-
 export { ANALYSER_FFT_SIZE, DEFAULT_WORKLET_MODULE_URL, VOICE_RMS_PROCESSOR_NAME };
+export type { VoiceEnergyMode };

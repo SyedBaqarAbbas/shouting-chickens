@@ -1,77 +1,191 @@
 import { useEffect, useRef, useState } from "react";
 
+import {
+  SystemClock,
+  type CalibrationProfile,
+  type ControlMode,
+  type GameEventListener,
+  type InputSource,
+} from "../core";
 import { createGameRuntime } from "../game/createGame";
+import type { InputSourceFactory } from "../game/PhaserGameRuntime";
+import {
+  CombinedInputSource,
+  KeyboardInputSource,
+  OptionalInputSource,
+  TouchInputSource,
+} from "../game/input/BrowserInputSources";
+
+export interface GameSurfaceProps {
+  readonly activeInput: ControlMode;
+  readonly blocked: boolean;
+  readonly calibration: CalibrationProfile | null;
+  readonly createRuntime?: typeof createGameRuntime;
+  readonly landscape: boolean;
+  readonly onEvent: GameEventListener;
+  readonly onReady?: () => void;
+  readonly onVoiceUnavailable?: (error: unknown) => void;
+  readonly pauseReasons: ReadonlySet<string>;
+  readonly restartToken: number;
+  readonly voiceInput: InputSource | null;
+}
 
 const RUN_OPTIONS = {
   seed: "looping-course",
-  calibration: null,
-  gameplayVersion: "sho-11",
+  gameplayVersion: "sho-12",
 } as const;
 
-interface GameSurfaceProps {
-  readonly landscape: boolean;
-}
-
-export function GameSurface({ landscape }: GameSurfaceProps) {
+export function GameSurface({
+  activeInput,
+  blocked,
+  calibration,
+  createRuntime = createGameRuntime,
+  landscape,
+  onEvent,
+  onReady,
+  onVoiceUnavailable,
+  pauseReasons,
+  restartToken,
+  voiceInput,
+}: GameSurfaceProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const runtimeRef = useRef<ReturnType<typeof createGameRuntime> | null>(null);
   const mountedRef = useRef(false);
-  const landscapeRef = useRef(landscape);
-  const [mountFailed, setMountFailed] = useState(false);
+  const pausedRef = useRef(pauseReasons.size > 0);
+  const restartTokenRef = useRef(restartToken);
+  const [initialActiveInput] = useState(activeInput);
+  const onEventRef = useRef(onEvent);
+  const onReadyRef = useRef(onReady);
+  const onVoiceUnavailableRef = useRef(onVoiceUnavailable);
+
+  useEffect(() => {
+    onEventRef.current = onEvent;
+    onReadyRef.current = onReady;
+    onVoiceUnavailableRef.current = onVoiceUnavailable;
+  }, [onEvent, onReady, onVoiceUnavailable]);
 
   useEffect(() => {
     const container = containerRef.current;
-
     if (!container) {
       return;
     }
 
-    const runtime = createGameRuntime();
-    runtimeRef.current = runtime;
     let disposed = false;
+    let fatalEventSeen = false;
+    let runtime: ReturnType<typeof createRuntime> | null = null;
+    let unsubscribe: () => void = () => undefined;
 
-    void runtime
-      .mount(container)
-      .then(() => {
-        if (disposed) {
-          return;
+    // StrictMode replays effects in development. Deferring ownership prevents
+    // the throwaway setup from starting and later stopping the shared voice
+    // graph after the real setup has taken ownership of it.
+    queueMicrotask(() => {
+      if (disposed) {
+        return;
+      }
+
+      const clock = new SystemClock();
+      const inputSourceFactory: InputSourceFactory = (parent) => {
+        const sources: InputSource[] = [
+          new KeyboardInputSource(clock, window),
+          new TouchInputSource(clock, parent),
+        ];
+
+        if (initialActiveInput === "voice" && voiceInput) {
+          sources.push(
+            new OptionalInputSource(voiceInput, (error) => {
+              onVoiceUnavailableRef.current?.(error);
+            }),
+          );
         }
 
-        mountedRef.current = true;
-        runtime.startRun(RUN_OPTIONS);
-
-        if (landscapeRef.current) {
-          runtime.pause();
+        return new CombinedInputSource(sources);
+      };
+      runtime = createRuntime({ clock, inputSourceFactory });
+      runtimeRef.current = runtime;
+      runtime.setActiveInput(initialActiveInput);
+      unsubscribe = runtime.subscribe((event) => {
+        if (event.type === "fatal-error") {
+          fatalEventSeen = true;
         }
-      })
-      .catch(() => {
-        if (!disposed) {
-          setMountFailed(true);
-        }
+        onEventRef.current(event);
       });
+
+      void runtime
+        .mount(container)
+        .then(() => {
+          if (disposed || !runtime) {
+            return;
+          }
+
+          mountedRef.current = true;
+          runtime.startRun({
+            ...RUN_OPTIONS,
+            calibration,
+          });
+
+          if (pausedRef.current) {
+            runtime.pause();
+          }
+          onReadyRef.current?.();
+        })
+        .catch((cause) => {
+          if (!disposed && !fatalEventSeen) {
+            onEventRef.current({
+              error: {
+                cause,
+                code: "render-failed",
+                message: "The game world could not be mounted",
+                recoverable: true,
+              },
+              type: "fatal-error",
+            });
+          }
+        });
+    });
 
     return () => {
       disposed = true;
       mountedRef.current = false;
-      runtimeRef.current = null;
-      runtime.destroy();
+      if (runtimeRef.current === runtime) {
+        runtimeRef.current = null;
+      }
+      unsubscribe();
+      runtime?.destroy();
     };
-  }, []);
+  }, [calibration, createRuntime, initialActiveInput, voiceInput]);
 
   useEffect(() => {
-    landscapeRef.current = landscape;
-    const runtime = runtimeRef.current;
+    runtimeRef.current?.setActiveInput(activeInput);
+  }, [activeInput]);
 
+  useEffect(() => {
+    pausedRef.current = pauseReasons.size > 0;
+    const runtime = runtimeRef.current;
     if (!runtime || !mountedRef.current) {
       return;
     }
 
-    if (landscape) {
+    if (pausedRef.current) {
       runtime.pause();
     } else {
       runtime.resume();
     }
-  }, [landscape]);
+  }, [pauseReasons]);
+
+  useEffect(() => {
+    const runtime = runtimeRef.current;
+    if (restartToken === restartTokenRef.current) {
+      return;
+    }
+
+    restartTokenRef.current = restartToken;
+    if (runtime && mountedRef.current) {
+      runtime.restart();
+      if (pausedRef.current) {
+        runtime.pause();
+      }
+    }
+  }, [restartToken]);
 
   return (
     <div
@@ -80,14 +194,11 @@ export function GameSurface({ landscape }: GameSurfaceProps) {
       className="game-surface"
       data-testid="game-surface"
       data-orientation={landscape ? "landscape" : "portrait"}
-      aria-label="Shouting Chickens game. Tap, press Space, or use Up Arrow to jump."
-      tabIndex={0}
-    >
-      {mountFailed ? (
-        <p className="game-mount-error" role="alert">
-          The game could not start. Refresh to try again.
-        </p>
-      ) : null}
-    </div>
+      data-blocked={blocked ? "true" : "false"}
+      aria-hidden={blocked}
+      aria-label="Shouting Chickens game. Tap the playfield, press Space, or use Up Arrow to jump."
+      inert={blocked}
+      tabIndex={-1}
+    />
   );
 }

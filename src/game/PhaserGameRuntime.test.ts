@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { ManualClock, ScriptedInputSource, type GameEvent, type InputSource } from "../core";
+import {
+  ManualClock,
+  ScriptedInputSource,
+  type GameEvent,
+  type InputFeedback,
+  type InputSource,
+} from "../core";
 import { PhaserGameRuntime, type PhaserMountFactory } from "./PhaserGameRuntime";
 import { FIXED_STEP_MS } from "./simulation";
 import {
@@ -139,6 +145,65 @@ describe("PhaserGameRuntime", () => {
     runtime.destroy();
   });
 
+  it("publishes real normalized input and active-control provenance to the HUD", async () => {
+    const clock = new ManualClock();
+    let feedback: InputFeedback = {
+      normalizedLevel: 0.4,
+      provenance: "voice" as const,
+    };
+    const input: InputSource = {
+      async start() {},
+      latest() {
+        return { atMs: clock.now(), jumpPressed: false, lift: 0 };
+      },
+      getFeedback: () => feedback,
+      stop() {},
+    };
+    const runtime = new PhaserGameRuntime({
+      phaserFactory: () => ({
+        game: { destroy: vi.fn() },
+        ready: Promise.resolve(),
+      }),
+      inputSourceFactory: () => input,
+      renderResolution: 1,
+      clock,
+    });
+    const snapshots: GameEvent[] = [];
+    runtime.subscribe((event) => snapshots.push(event));
+    const container = document.createElement("div");
+    await runtime.mount(container);
+    runtime.setActiveInput("voice");
+    runtime.startRun(RUN_OPTIONS);
+    clock.advance(FIXED_STEP_MS);
+    runtime.advanceFrame(FIXED_STEP_MS);
+
+    expect(runtime.hudSnapshot()).toEqual({
+      activeInput: "voice",
+      configuredInput: "voice",
+      normalizedInput: 0.4,
+    });
+    expect(container.dataset.activeInput).toBe("voice");
+    expect(container.dataset.configuredInput).toBe("voice");
+    expect(container.dataset.inputLevel).toBe("0.400");
+    expect(snapshots).toContainEqual({
+      type: "snapshot",
+      value: expect.objectContaining({ normalizedInput: 0.4 }),
+    });
+
+    feedback = {
+      normalizedLevel: 1,
+      provenance: "keyboard-touch",
+    };
+    clock.advance(FIXED_STEP_MS);
+    runtime.advanceFrame(FIXED_STEP_MS);
+    expect(runtime.hudSnapshot()).toEqual({
+      activeInput: "keyboard-touch",
+      configuredInput: "voice",
+      normalizedInput: 1,
+    });
+    runtime.destroy();
+  });
+
   it("can be destroyed while a scene is still booting", async () => {
     const input = new LifecycleInput();
     const destroy = vi.fn();
@@ -273,6 +338,38 @@ describe("PhaserGameRuntime", () => {
         animation: "run",
       },
     });
+    runtime.destroy();
+  });
+
+  it("never restarts a dead run from gameplay input behind semantic results", async () => {
+    let jumpPressed = false;
+    const input: InputSource = {
+      async start() {},
+      latest() {
+        return { atMs: 0, jumpPressed, lift: jumpPressed ? 1 : 0 };
+      },
+      stop() {},
+    };
+    const runtime = new PhaserGameRuntime({
+      phaserFactory: () => ({
+        game: { destroy: vi.fn() },
+        ready: Promise.resolve(),
+      }),
+      inputSourceFactory: () => input,
+      renderResolution: 1,
+      clock: new ManualClock(),
+    });
+    await runtime.mount(document.createElement("div"));
+    runtime.startRun(RUN_OPTIONS);
+    for (let tick = 0; tick < 600 && runtime.snapshot().phase === "running"; tick += 1) {
+      runtime.advanceFrame(FIXED_STEP_MS);
+    }
+    const ended = runtime.snapshot();
+    jumpPressed = true;
+
+    runtime.advanceFrame(FIXED_STEP_MS * 4);
+
+    expect(runtime.snapshot()).toEqual(ended);
     runtime.destroy();
   });
 

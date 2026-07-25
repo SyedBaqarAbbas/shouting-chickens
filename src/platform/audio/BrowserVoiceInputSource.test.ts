@@ -186,6 +186,10 @@ describe("BrowserVoiceInputSource", () => {
       onset: false,
       rawDb: expect.any(Number),
     });
+    expect(input.getFeedback()).toEqual({
+      normalizedLevel: input.getLatestVoiceFrame()?.normalizedLevel,
+      provenance: "voice",
+    });
   });
 
   it("falls back to analyser frames using the same scalar processing contract", async () => {
@@ -348,6 +352,48 @@ describe("BrowserVoiceInputSource", () => {
       type: "voice-energy",
     });
     expect(input.latest().jumpPressed).toBe(true);
+  });
+
+  it("clears processed lift and a pending jump edge on explicit run reset", async () => {
+    const harness = createSessionHarness({ worklet: true });
+    const clock = new ManualClock(20);
+    const node = new FakeWorkletNode();
+    const input = new BrowserVoiceInputSource(
+      harness.session,
+      clock,
+      PROFILE,
+      { createAudioWorkletNode: () => node as unknown as AudioWorkletNode },
+      processingOptions(),
+    );
+    await input.start();
+    node.port.emit({
+      ...energyScalarFromSamples(new Float32Array(32).fill(0.5)),
+      type: "voice-energy",
+    });
+
+    input.resetRunState();
+
+    expect(input.latest()).toEqual({
+      atMs: 20,
+      jumpPressed: false,
+      lift: 0,
+    });
+    expect(input.getLatestVoiceFrame()).toBeNull();
+  });
+
+  it("cleans up a rejected scalar start so a retry is a fresh promise", async () => {
+    const harness = createSessionHarness();
+    vi.mocked(harness.context.createAnalyser).mockImplementation(() => {
+      throw new Error("analyser unavailable");
+    });
+    const input = new BrowserVoiceInputSource(harness.session, new ManualClock(), PROFILE);
+
+    const first = input.start();
+    await expect(first).rejects.toThrow("analyser unavailable");
+    const second = input.start();
+
+    expect(second).not.toBe(first);
+    await expect(second).rejects.toThrow("analyser unavailable");
   });
 
   it("can restart while an earlier worklet module load is still pending", async () => {

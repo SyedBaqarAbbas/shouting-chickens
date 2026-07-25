@@ -2,8 +2,10 @@ import {
   GameEventHub,
   SystemClock,
   type Clock,
+  type ControlMode,
   type GameEventListener,
   type GameRuntime,
+  type InputProvenance,
   type InputSource,
   type ControlIntent,
   type RunOptions,
@@ -15,6 +17,11 @@ export type PhaserFrameHost = {
   onSceneReady(): void;
   advanceFrame(deltaMs: number): SimulationSnapshot;
   snapshot(): SimulationSnapshot;
+  hudSnapshot(): {
+    activeInput: InputProvenance;
+    configuredInput: ControlMode;
+    normalizedInput: number;
+  };
 };
 
 export type PhaserGameHandle = {
@@ -80,6 +87,9 @@ export class PhaserGameRuntime implements GameRuntime, PhaserFrameHost {
   private container: HTMLElement | null = null;
   private lastRunOptions: RunOptions | null = null;
   private endedEventSent = false;
+  private activeInput: InputProvenance = "none";
+  private configuredInput: ControlMode = "keyboard-touch";
+  private normalizedInput = 0;
 
   constructor(private readonly options: PhaserGameRuntimeOptions) {
     if (
@@ -173,6 +183,15 @@ export class PhaserGameRuntime implements GameRuntime, PhaserFrameHost {
 
     this.simulation.reset();
     this.simulation.start();
+    this.activeInput = "none";
+    this.normalizedInput = 0;
+    this.updateContainerState();
+  }
+
+  setActiveInput(mode: ControlMode) {
+    this.configuredInput = mode;
+    this.activeInput = "none";
+    this.normalizedInput = 0;
     this.updateContainerState();
   }
 
@@ -244,20 +263,18 @@ export class PhaserGameRuntime implements GameRuntime, PhaserFrameHost {
     const input = this.input;
     const before = this.simulation.snapshot();
 
-    if (before.phase === "dead" && input && this.readRestartIntent(input).jumpPressed) {
-      this.restart();
-    } else if (input) {
+    if (before.phase !== "dead" && input) {
       this.runner.advance(deltaMs, () => this.readFixedStepIntent(input));
     }
 
     const after = this.simulation.snapshot();
 
-    this.events.publishSnapshot({
+    const snapshotPublished = this.events.publishSnapshot({
       phase: after.phase === "dead" ? "game-over" : after.phase,
       elapsedMs: after.elapsedMs,
       score: after.score,
       distance: after.distance,
-      normalizedInput: 0,
+      normalizedInput: this.normalizedInput,
     });
 
     if (after.phase === "dead" && !this.endedEventSent && this.lastRunOptions) {
@@ -275,7 +292,7 @@ export class PhaserGameRuntime implements GameRuntime, PhaserFrameHost {
       });
     }
 
-    if (before.phase !== after.phase || before.score !== after.score) {
+    if (snapshotPublished || before.phase !== after.phase || before.score !== after.score) {
       this.updateContainerState();
     }
 
@@ -284,6 +301,14 @@ export class PhaserGameRuntime implements GameRuntime, PhaserFrameHost {
 
   snapshot() {
     return this.simulation.snapshot();
+  }
+
+  hudSnapshot() {
+    return {
+      activeInput: this.activeInput,
+      configuredInput: this.configuredInput,
+      normalizedInput: this.normalizedInput,
+    };
   }
 
   diagnostics(): RuntimeDiagnostics {
@@ -314,19 +339,21 @@ export class PhaserGameRuntime implements GameRuntime, PhaserFrameHost {
   }
 
   private readFixedStepIntent(input: InputSource) {
+    let intent: ControlIntent;
+
     if (supportsSimulationTime(input)) {
-      return input.sampleAt(this.simulation.snapshot().elapsedMs + FIXED_STEP_MS);
+      intent = input.sampleAt(this.simulation.snapshot().elapsedMs + FIXED_STEP_MS);
+    } else {
+      intent = input.latest();
     }
 
-    return input.latest();
-  }
-
-  private readRestartIntent(input: InputSource) {
-    if (supportsSimulationTime(input)) {
-      return input.sampleAt(this.simulation.snapshot().elapsedMs);
-    }
-
-    return input.latest();
+    const feedback = input.getFeedback?.();
+    const fallbackLevel = Math.max(intent.lift, intent.jumpPressed ? 1 : 0);
+    this.normalizedInput = clampInputLevel(feedback?.normalizedLevel ?? fallbackLevel);
+    this.activeInput =
+      feedback?.provenance ??
+      (this.normalizedInput > 0 ? this.configuredInput : ("none" satisfies InputProvenance));
+    return intent;
   }
 
   private updateContainerState() {
@@ -348,6 +375,9 @@ export class PhaserGameRuntime implements GameRuntime, PhaserFrameHost {
     this.container.dataset.pooledObjects = String(diagnostics.pooledObjects);
     this.container.dataset.sceneObjects = String(diagnostics.sceneObjects);
     this.container.dataset.inputListeners = String(diagnostics.inputListeners);
+    this.container.dataset.activeInput = this.activeInput;
+    this.container.dataset.configuredInput = this.configuredInput;
+    this.container.dataset.inputLevel = this.normalizedInput.toFixed(3);
     this.container.dataset.score = String(snapshot.score);
     this.container.dataset.elapsedMs = String(snapshot.elapsedMs);
     this.container.dataset.courseDistance = String(snapshot.courseDistance);
@@ -355,4 +385,8 @@ export class PhaserGameRuntime implements GameRuntime, PhaserFrameHost {
     this.container.dataset.deathReason = snapshot.deathReason ?? "";
     this.container.dataset.collisionId = snapshot.collisionId ?? "";
   }
+}
+
+function clampInputLevel(level: number): number {
+  return Number.isFinite(level) ? Math.min(1, Math.max(0, level)) : 0;
 }
