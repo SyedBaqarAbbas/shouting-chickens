@@ -11,6 +11,7 @@ import {
   type RunOptions,
 } from "../core";
 import { FixedStepRunner } from "./FixedStepRunner";
+import { DEFAULT_PLAYER_CONTROLLER_TUNING } from "./FixedStepPlayerController";
 import { ChickenSimulation, FIXED_STEP_MS, type SimulationSnapshot } from "./simulation";
 
 export type PhaserFrameHost = {
@@ -90,6 +91,8 @@ export class PhaserGameRuntime implements GameRuntime, PhaserFrameHost {
   private activeInput: InputProvenance = "none";
   private configuredInput: ControlMode = "keyboard-touch";
   private normalizedInput = 0;
+  private appliedLift = 0;
+  private runGeneration = 0;
 
   constructor(private readonly options: PhaserGameRuntimeOptions) {
     if (
@@ -173,6 +176,7 @@ export class PhaserGameRuntime implements GameRuntime, PhaserFrameHost {
     this.assertMounted();
     this.lastRunOptions = { ...options };
     this.endedEventSent = false;
+    this.runGeneration += 1;
     this.runner.reset();
     this.events.resetRunState();
     this.input?.resetRunState?.();
@@ -185,6 +189,7 @@ export class PhaserGameRuntime implements GameRuntime, PhaserFrameHost {
     this.simulation.start();
     this.activeInput = "none";
     this.normalizedInput = 0;
+    this.appliedLift = 0;
     this.updateContainerState();
   }
 
@@ -192,6 +197,7 @@ export class PhaserGameRuntime implements GameRuntime, PhaserFrameHost {
     this.configuredInput = mode;
     this.activeInput = "none";
     this.normalizedInput = 0;
+    this.appliedLift = 0;
     this.updateContainerState();
   }
 
@@ -349,6 +355,7 @@ export class PhaserGameRuntime implements GameRuntime, PhaserFrameHost {
 
     const feedback = input.getFeedback?.();
     const fallbackLevel = Math.max(intent.lift, intent.jumpPressed ? 1 : 0);
+    this.appliedLift = clampInputLevel(intent.lift);
     this.normalizedInput = clampInputLevel(feedback?.normalizedLevel ?? fallbackLevel);
     this.activeInput =
       feedback?.provenance ??
@@ -365,6 +372,7 @@ export class PhaserGameRuntime implements GameRuntime, PhaserFrameHost {
     const snapshot = this.simulation.snapshot();
 
     this.container.dataset.runtimeState = diagnostics.state;
+    this.container.dataset.runGeneration = String(this.runGeneration);
     this.container.dataset.simulationPhase = snapshot.phase;
     this.container.dataset.logicalWidth = "432";
     this.container.dataset.logicalHeight = "768";
@@ -378,6 +386,16 @@ export class PhaserGameRuntime implements GameRuntime, PhaserFrameHost {
     this.container.dataset.activeInput = this.activeInput;
     this.container.dataset.configuredInput = this.configuredInput;
     this.container.dataset.inputLevel = this.normalizedInput.toFixed(3);
+    this.container.dataset.appliedLift = this.appliedLift.toFixed(3);
+    this.container.dataset.controlAccelerationY = (
+      DEFAULT_PLAYER_CONTROLLER_TUNING.gravityPerSecond -
+      this.appliedLift * DEFAULT_PLAYER_CONTROLLER_TUNING.liftAccelerationPerSecond
+    ).toFixed(3);
+    this.container.dataset.playerY = snapshot.chicken.y.toFixed(3);
+    this.container.dataset.playerVelocityY = snapshot.chicken.velocityY.toFixed(3);
+    this.container.dataset.playerGrounded = snapshot.chicken.grounded ? "true" : "false";
+    this.container.dataset.playerAnimation = snapshot.chicken.animation;
+    this.container.dataset.supportingPlatform = snapshot.chicken.supportingPlatformId ?? "";
     this.container.dataset.score = String(snapshot.score);
     this.container.dataset.elapsedMs = String(snapshot.elapsedMs);
     this.container.dataset.courseDistance = String(snapshot.courseDistance);

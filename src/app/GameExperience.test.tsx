@@ -268,7 +268,7 @@ function renderHarness(
   });
   const experience = (
     <GameExperience
-      countdownStepMs={5}
+      countdownStepMs={50}
       createCalibrationCapture={createCapture}
       createRuntime={runtime.factory}
       createVoiceInput={createVoice}

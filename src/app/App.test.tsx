@@ -66,6 +66,16 @@ describe("App media ownership", () => {
     expect(session.requestMicrophoneFromGesture).not.toHaveBeenCalled();
   });
 
+  it("keeps immutable release identity and local privacy/support links visible", () => {
+    const session = fakeManagedMediaSession();
+    render(<App createMediaSession={() => session.value} />);
+
+    const release = screen.getByRole("contentinfo", { name: "Release information" });
+    expect(release).toHaveTextContent("Version 0.1.0 · build development");
+    expect(screen.getByRole("link", { name: "Privacy" })).toHaveAttribute("href", "./privacy/");
+    expect(screen.getByRole("link", { name: "Support" })).toHaveAttribute("href", "./support/");
+  });
+
   it("shows the rotate guidance without starting a hidden run", async () => {
     Object.defineProperty(window, "innerWidth", { configurable: true, value: 844 });
     Object.defineProperty(window, "innerHeight", { configurable: true, value: 390 });

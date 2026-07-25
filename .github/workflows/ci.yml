@@ -1,31 +1,103 @@
-name: CI
+name: CI and MVP release
 
 on:
   push:
     branches:
       - main
   pull_request:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Deploy the tested artifact to GitHub Pages
+        required: true
+        type: boolean
+        default: false
+      ios_evidence_url:
+        description: HTTPS link to completed physical iOS Safari evidence
+        required: false
+        type: string
+      android_evidence_url:
+        description: HTTPS link to completed physical Android Chrome evidence
+        required: false
+        type: string
+      candidate_manifest_sha:
+        description: SHA-256 of the physically tested candidate artifact-manifest.json
+        required: false
+        type: string
 
 permissions:
   contents: read
 
+concurrency:
+  group: shouting-chickens-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   quality:
+    name: Test and seal MVP artifact
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 40
+    outputs:
+      app_version: ${{ steps.metadata.outputs.app_version }}
+      artifact_manifest_sha: ${{ steps.artifact.outputs.sha256 }}
+      commit_sha: ${{ github.sha }}
+
+    env:
+      PAGES_BASE_PATH: /shouting-chickens/
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Set up Node
-        uses: actions/setup-node@v4
+      - name: Set up pinned Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .nvmrc
           cache: npm
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Record release identity
+        id: metadata
+        shell: bash
+        run: |
+          APP_VERSION="$(node -p "require('./package.json').version")"
+          echo "APP_VERSION=$APP_VERSION" >> "$GITHUB_ENV"
+          echo "COMMIT_SHA=$GITHUB_SHA" >> "$GITHUB_ENV"
+          echo "app_version=$APP_VERSION" >> "$GITHUB_OUTPUT"
+          node --version
+          npm --version
+
+      - name: Validate physical-device evidence gate
+        if: github.event_name == 'workflow_dispatch' && inputs.publish
+        shell: bash
+        env:
+          IOS_EVIDENCE_URL: ${{ inputs.ios_evidence_url }}
+          ANDROID_EVIDENCE_URL: ${{ inputs.android_evidence_url }}
+          CANDIDATE_MANIFEST_SHA: ${{ inputs.candidate_manifest_sha }}
+        run: |
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "Publishing is allowed only from main." >&2
+            exit 1
+          fi
+          for evidence_url in "$IOS_EVIDENCE_URL" "$ANDROID_EVIDENCE_URL"; do
+            if [[ "$evidence_url" != https://* || "$evidence_url" == *$'\n'* ]]; then
+              echo "Publishing requires separate HTTPS iOS and Android evidence links." >&2
+              exit 1
+            fi
+          done
+          if [[ "$IOS_EVIDENCE_URL" == "$ANDROID_EVIDENCE_URL" ]]; then
+            echo "iOS and Android require separate evidence records." >&2
+            exit 1
+          fi
+          if [[ ! "$CANDIDATE_MANIFEST_SHA" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "Publishing requires the candidate artifact-manifest SHA-256." >&2
+            exit 1
+          fi
+
+      - name: Check dependency advisories
+        run: npm audit --audit-level=low
 
       - name: Check formatting
         run: npm run format:check
@@ -36,25 +108,177 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
-      - name: Run unit tests
+      - name: Run unit and integration tests
         run: npm run test
 
-      - name: Build production bundle
+      - name: Build, seal, and inspect production artifact
         run: npm run build
 
       - name: Install Chromium
         run: npx playwright install --with-deps chromium
 
-      - name: Run browser smoke tests
+      - name: Run development-boundary browser suite
         run: npm run test:e2e
+
+      - name: Run sealed Pages-subpath acceptance suite
+        run: npm run test:e2e:production
+
+      - name: Run Lighthouse smoke
+        run: npm run test:lighthouse
+
+      - name: Run five-minute restart soak
+        run: npm run test:soak
+
+      - name: Reinspect unchanged tested artifact
+        run: node scripts/inspect-build.mjs
+
+      - name: Verify tracked checkout remains clean
+        run: git diff --exit-code
+
+      - name: Record sealed artifact digest
+        id: artifact
+        shell: bash
+        env:
+          CANDIDATE_MANIFEST_SHA: ${{ inputs.candidate_manifest_sha }}
+        run: |
+          ARTIFACT_SHA="$(sha256sum dist/artifact-manifest.json | cut -d ' ' -f 1)"
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" && "${{ inputs.publish }}" == "true" && "$ARTIFACT_SHA" != "$CANDIDATE_MANIFEST_SHA" ]]; then
+            echo "Built artifact differs from the physically tested candidate." >&2
+            exit 1
+          fi
+          echo "sha256=$ARTIFACT_SHA" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Sealed MVP artifact"
+            echo
+            echo "- Version: \`$APP_VERSION\`"
+            echo "- Commit: \`$COMMIT_SHA\`"
+            echo "- Manifest SHA-256: \`$ARTIFACT_SHA\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload immutable tested artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: mvp-${{ steps.metadata.outputs.app_version }}-${{ github.sha }}
+          path: dist/
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 30
+          compression-level: 0
+
+      - name: Upload release verification evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: mvp-verification-${{ github.sha }}
+          path: |
+            .lighthouse/
+            .release-evidence/
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 30
+
+      - name: Upload exact tested Pages artifact
+        if: github.event_name == 'workflow_dispatch' && inputs.publish
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: dist/
 
       - name: Upload browser failure artifacts
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: playwright-failure-artifacts
+          name: browser-failure-${{ github.sha }}
+          path: |
+            playwright-report/
+            test-results/
+            .lighthouse/
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 7
+
+  deploy:
+    name: Deploy sealed artifact
+    if: github.event_name == 'workflow_dispatch' && inputs.publish && github.ref == 'refs/heads/main'
+    needs: quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    outputs:
+      page_url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Configure existing GitHub Pages site
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
+
+      - name: Deploy exact tested Pages artifact
+        id: deployment
+        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0
+
+  postdeploy:
+    name: Verify deployed artifact
+    if: github.event_name == 'workflow_dispatch' && inputs.publish && github.ref == 'refs/heads/main'
+    needs:
+      - quality
+      - deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check out deployed source revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.quality.outputs.commit_sha }}
+
+      - name: Set up pinned Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run HTTPS post-deploy smoke and integrity proof
+        env:
+          APP_VERSION: ${{ needs.quality.outputs.app_version }}
+          ARTIFACT_MANIFEST_SHA: ${{ needs.quality.outputs.artifact_manifest_sha }}
+          COMMIT_SHA: ${{ needs.quality.outputs.commit_sha }}
+          DEPLOY_URL: ${{ needs.deploy.outputs.page_url }}
+        run: npm run test:postdeploy
+
+      - name: Record physical-device evidence links
+        shell: bash
+        env:
+          IOS_EVIDENCE_URL: ${{ inputs.ios_evidence_url }}
+          ANDROID_EVIDENCE_URL: ${{ inputs.android_evidence_url }}
+          CANDIDATE_MANIFEST_SHA: ${{ inputs.candidate_manifest_sha }}
+        run: |
+          {
+            echo "### Physical-device evidence supplied for this release"
+            echo
+            printf '%s\n' "- iOS Safari: $IOS_EVIDENCE_URL"
+            printf '%s\n' "- Android Chrome: $ANDROID_EVIDENCE_URL"
+            printf '%s\n' "- Physically tested manifest SHA-256: \`$CANDIDATE_MANIFEST_SHA\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload post-deploy failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: postdeploy-failure-${{ github.sha }}
           path: |
             playwright-report/
             test-results/
           if-no-files-found: ignore
+          include-hidden-files: true
           retention-days: 7

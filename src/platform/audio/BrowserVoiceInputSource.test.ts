@@ -4,6 +4,7 @@ import { ManualClock } from "../../core/clock";
 import type { CalibrationProfile } from "../../core/contracts";
 import { energyScalarFromSamples } from "../../input";
 import type { MediaResourceStatus, MicrophoneAudioGraph } from "../media/BrowserMediaSession";
+import { DEFAULT_WORKLET_MODULE_URL } from "./BrowserScalarEnergySource";
 import {
   BrowserVoiceInputSource,
   VOICE_RMS_PROCESSOR_NAME,
@@ -150,9 +151,7 @@ describe("BrowserVoiceInputSource", () => {
     await input.start();
 
     expect(input.mode).toBe("audio-worklet");
-    expect(harness.context.audioWorklet.addModule).toHaveBeenCalledWith(
-      "/audio/voice-rms-processor.js",
-    );
+    expect(harness.context.audioWorklet.addModule).toHaveBeenCalledWith(DEFAULT_WORKLET_MODULE_URL);
     expect(createNode).toHaveBeenCalledWith(
       harness.context,
       VOICE_RMS_PROCESSOR_NAME,

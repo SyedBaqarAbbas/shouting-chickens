@@ -5,13 +5,14 @@
   "type": "module",
   "packageManager": "npm@10.9.3",
   "engines": {
-    "node": "22.18.0",
+    "node": "22.19.0",
     "npm": "10.9.3"
   },
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b && vite build && node scripts/seal-build.mjs && node scripts/inspect-build.mjs",
     "preview": "vite preview",
+    "preview:pages": "node scripts/serve-dist.mjs",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint . --max-warnings=0",
@@ -19,7 +20,11 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:e2e:production": "cross-env E2E_MODE=production E2E_SUITE=release playwright test",
+    "test:lighthouse": "node scripts/lighthouse-smoke.mjs",
+    "test:soak": "cross-env E2E_MODE=production E2E_SUITE=soak playwright test",
+    "test:postdeploy": "cross-env E2E_SUITE=postdeploy playwright test"
   },
   "dependencies": {
     "phaser": "4.2.1",
@@ -37,11 +42,14 @@
     "@types/react-dom": "19.2.3",
     "@vitejs/plugin-react": "6.0.4",
     "@vitest/coverage-v8": "4.1.10",
+    "chrome-launcher": "1.2.1",
+    "cross-env": "10.1.0",
     "eslint": "10.7.0",
     "eslint-plugin-react-hooks": "7.1.1",
     "eslint-plugin-react-refresh": "0.5.3",
     "globals": "17.7.0",
     "jsdom": "29.1.1",
+    "lighthouse": "13.4.1",
     "prettier": "3.9.6",
     "typescript": "6.0.3",
     "typescript-eslint": "8.65.0",

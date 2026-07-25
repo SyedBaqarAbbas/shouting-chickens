@@ -71,10 +71,12 @@ describe("PhaserGameRuntime", () => {
 
       await runtime.mount(container);
       runtime.startRun(RUN_OPTIONS);
+      expect(container.dataset.runGeneration).toBe("1");
       runtime.advanceFrame(FIXED_STEP_MS);
       expect(runtime.snapshot().tick).toBe(1);
 
       runtime.restart();
+      expect(container.dataset.runGeneration).toBe("2");
       expect(runtime.snapshot()).toMatchObject({
         phase: "running",
         tick: 0,
@@ -154,7 +156,7 @@ describe("PhaserGameRuntime", () => {
     const input: InputSource = {
       async start() {},
       latest() {
-        return { atMs: clock.now(), jumpPressed: false, lift: 0 };
+        return { atMs: clock.now(), jumpPressed: false, lift: 0.4 };
       },
       getFeedback: () => feedback,
       stop() {},
@@ -185,6 +187,8 @@ describe("PhaserGameRuntime", () => {
     expect(container.dataset.activeInput).toBe("voice");
     expect(container.dataset.configuredInput).toBe("voice");
     expect(container.dataset.inputLevel).toBe("0.400");
+    expect(container.dataset.appliedLift).toBe("0.400");
+    expect(container.dataset.controlAccelerationY).toBe("820.000");
     expect(snapshots).toContainEqual({
       type: "snapshot",
       value: expect.objectContaining({ normalizedInput: 0.4 }),
@@ -298,7 +302,8 @@ describe("PhaserGameRuntime", () => {
     });
     const events: GameEvent[] = [];
     runtime.subscribe((event) => events.push(event));
-    await runtime.mount(document.createElement("div"));
+    const container = document.createElement("div");
+    await runtime.mount(container);
     runtime.startRun(RUN_OPTIONS);
 
     for (let frame = 0; frame < 600 && runtime.snapshot().phase !== "dead"; frame += 1) {
@@ -325,6 +330,7 @@ describe("PhaserGameRuntime", () => {
     });
 
     runtime.restart();
+    expect(container.dataset.runGeneration).toBe("2");
     expect(runtime.snapshot()).toMatchObject({
       phase: "running",
       tick: 0,

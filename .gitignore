@@ -14,6 +14,8 @@ coverage/
 playwright-report/
 test-results/
 blob-report/
+.lighthouse/
+.release-evidence/
 *.trace.zip
 
 # Local environments and secrets

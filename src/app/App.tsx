@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import { createGameRuntime } from "../game/createGame";
 import { createBrowserMediaSession, type BrowserMediaSession } from "../platform/media";
+import { RELEASE_INFO } from "../release";
 import { GameExperience, type GameExperienceProps } from "./GameExperience";
 
 export interface AppProps extends Pick<
@@ -91,6 +92,14 @@ export function App({
           <small>The run pauses and the camera turns off while the screen is landscape.</small>
         </div>
       </section>
+      <footer className="site-release" aria-label="Release information">
+        <span className="site-release__build">
+          Version {RELEASE_INFO.version} · build{" "}
+          <abbr title={RELEASE_INFO.commitSha}>{RELEASE_INFO.shortCommitSha}</abbr>
+        </span>
+        <a href="./privacy/">Privacy</a>
+        <a href="./support/">Support</a>
+      </footer>
     </main>
   );
 }

@@ -39,11 +39,14 @@ textarea {
 }
 
 .app-shell {
-  display: grid;
+  display: flex;
   min-height: 100dvh;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
   padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right))
     max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
-  place-items: center;
   background:
     radial-gradient(circle at 20% 20%, rgb(248 210 79 / 16%), transparent 34%),
     radial-gradient(circle at 78% 74%, rgb(68 179 255 / 15%), transparent 38%),
@@ -55,7 +58,7 @@ textarea {
   display: grid;
   width: min(100%, 432px);
   height: auto;
-  max-height: min(calc(100dvh - 24px), 768px);
+  max-height: min(calc(100dvh - 76px), 768px);
   aspect-ratio: 9 / 16;
   overflow: hidden;
   border: 1px solid rgb(255 255 255 / 14%);
@@ -65,6 +68,43 @@ textarea {
   box-shadow:
     0 28px 80px rgb(0 0 0 / 55%),
     inset 0 1px 0 rgb(255 255 255 / 10%);
+}
+
+.site-release {
+  display: flex;
+  min-height: 44px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: rgb(235 244 255 / 78%);
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.site-release__build {
+  white-space: nowrap;
+}
+
+.site-release abbr {
+  text-decoration: none;
+}
+
+.site-release a {
+  display: inline-flex;
+  min-width: 44px;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  color: #f5d567;
+  text-underline-offset: 3px;
+}
+
+.site-release a:focus-visible {
+  outline: 3px solid #ffffff;
+  outline-offset: 1px;
 }
 
 .camera-backdrop,
@@ -619,7 +659,7 @@ textarea {
 
 @media (max-height: 620px) {
   .game-phone {
-    width: min(100%, calc((100dvh - 24px) * 9 / 16));
+    width: min(100%, calc((100dvh - 76px) * 9 / 16));
     height: auto;
   }
 
@@ -636,7 +676,7 @@ textarea {
 @media (orientation: landscape) {
   .game-phone {
     width: auto;
-    height: min(calc(100dvh - 24px), 768px);
+    height: min(calc(100dvh - 76px), 768px);
   }
 }
 

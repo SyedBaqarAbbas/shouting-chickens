@@ -13,5 +13,5 @@
     "strict": true,
     "types": ["node"]
   },
-  "include": ["playwright.config.ts", "vite.config.ts", "tests/e2e"]
+  "include": ["playwright.config.ts", "vite.config.ts", "scripts/**/*.ts", "tests/**/*.ts"]
 }

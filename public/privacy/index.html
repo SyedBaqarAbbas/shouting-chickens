@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="referrer" content="no-referrer" />
+    <meta
+      name="description"
+      content="How Shouting Chickens handles microphone, camera, and local game data."
+    />
+    <link rel="icon" type="image/svg+xml" href="../favicon.svg" />
+    <link rel="stylesheet" href="../legal.css" />
+    <title>Privacy · Shouting Chickens</title>
+  </head>
+  <body>
+    <main>
+      <p><a href="../">← Back to Shouting Chickens</a></p>
+      <h1>Privacy</h1>
+      <p class="lede">
+        Shouting Chickens processes microphone and optional camera input on your device so you can
+        play. The MVP has no account, analytics, advertising, backend, or media upload.
+      </p>
+
+      <h2>Microphone</h2>
+      <p>
+        The game requests microphone access only after you select
+        <strong>Enable microphone</strong>. It measures sound energy for calibration and controls.
+        It does not perform speech recognition, save audio, or send audio off-device. You can play
+        with keyboard or touch instead.
+      </p>
+
+      <h2>Optional camera</h2>
+      <p>
+        Camera access is separate and is requested only after you enable it during a run. Video is
+        displayed locally behind the game. It is not recorded, stored, or uploaded. Turning the
+        camera off stops its video track.
+      </p>
+
+      <h2>Storage and network</h2>
+      <p>
+        This MVP does not persist calibration, scores, settings, or replays. The host serves the
+        application files over HTTPS; the game itself has no gameplay API or telemetry endpoint.
+      </p>
+
+      <h2>Your controls</h2>
+      <p>
+        Use the game’s fallback controls at any time. You can also revoke microphone or camera
+        permission in your browser or operating-system settings. Reloading or closing the tab stops
+        active media tracks.
+      </p>
+
+      <p class="notice">
+        Voice calibration should use a comfortable range. Painful shouting is never required.
+      </p>
+
+      <nav class="page-links" aria-label="Privacy page links">
+        <a href="../support/">Support and compatibility</a>
+        <a href="../release.json">Release identity</a>
+      </nav>
+    </main>
+  </body>
+</html>

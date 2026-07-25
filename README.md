@@ -1,12 +1,13 @@
 # Shouting Chickens
 
 A mobile-first browser platformer where a calibrated voice pulse makes a
-chicken jump and sustained sound adds airborne lift.
+chicken jump and sustained sound adds airborne lift. The playable MVP includes
+a handcrafted looping course, elapsed-time score, restart, optional mirrored
+camera, and keyboard/touch fallback.
 
-The product is currently in architecture and roadmap planning. See
-[implementation-plan.md](implementation-plan.md) for the locked gameplay model,
-MVP scope, full browser-product architecture, testing policy, and delivery
-roadmap. Delivery is tracked in the
+See [implementation-plan.md](implementation-plan.md) for the locked gameplay
+model, full browser-product architecture, testing policy, and delivery roadmap.
+Delivery is tracked in the
 [Shouting Chickens Linear project](https://linear.app/shouting-chickens/project/shouting-chickens-voice-controlled-browser-game-34f6b1b9dc80).
 
 The microphone is the signature controller, with keyboard and touch fallbacks.
@@ -17,7 +18,7 @@ artwork and branding will be original.
 
 ## Local development
 
-Use Node `22.18.0` and npm `10.9.3`.
+Use Node `22.19.0` and npm `10.9.3`.
 
 ```bash
 npm ci
@@ -35,6 +36,33 @@ npm run build
 ```
 
 Run `npm run test:e2e` for browser-facing changes.
+
+## MVP release verification
+
+The production build carries its package version and full commit SHA, is sealed
+with per-file SHA-256 evidence, and is inspected before it can become a Pages
+artifact:
+
+```bash
+APP_VERSION="$(node -p "require('./package.json').version")"
+COMMIT_SHA="$(git rev-parse HEAD)"
+export APP_VERSION COMMIT_SHA
+npm run build
+npm run test:e2e:production
+npm run test:lighthouse
+npm run test:soak
+```
+
+The soak defaults to five real wall-clock minutes. CI refuses a shorter soak.
+SHO-14 automation is Chromium-only; real iOS Safari and Android Chrome evidence
+is separately required before the manual Pages publish gate. WebKit/Firefox
+automation is deferred to SHO-20.
+
+Use the [release process](docs/release/release-process.md),
+[physical-device checklist](docs/release/mvp-release-checklist.md), and
+[support matrix](docs/release/support-matrix.md). The hosted artifact includes
+local Privacy and Support pages. The MVP processes microphone and optional
+camera input on-device and does not upload or save raw media.
 
 ## Handcrafted course contract
 

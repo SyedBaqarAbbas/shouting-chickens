@@ -5,7 +5,7 @@ import {
 } from "../../input/energy";
 import type { BrowserMediaSession, MicrophoneAudioGraph } from "../media/BrowserMediaSession";
 
-export const DEFAULT_WORKLET_MODULE_URL = "/audio/voice-rms-processor.js";
+export const DEFAULT_WORKLET_MODULE_URL = `${import.meta.env.BASE_URL}audio/voice-rms-processor.js`;
 export const VOICE_RMS_PROCESSOR_NAME = "voice-rms-processor";
 export const ANALYSER_FFT_SIZE = 256;
 

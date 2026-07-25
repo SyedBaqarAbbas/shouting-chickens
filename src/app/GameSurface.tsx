@@ -193,6 +193,7 @@ export function GameSurface({
       id="game-container"
       className="game-surface"
       data-testid="game-surface"
+      data-restart-token={restartToken}
       data-orientation={landscape ? "landscape" : "portrait"}
       data-blocked={blocked ? "true" : "false"}
       aria-hidden={blocked}
