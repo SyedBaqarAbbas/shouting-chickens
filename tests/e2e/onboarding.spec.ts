@@ -220,9 +220,41 @@ test("first run is keyboard reachable and fallback reaches pause, results, and r
   });
   await page.keyboard.press("Space");
   await expect(surface).toHaveAttribute("data-simulation-phase", "dead");
+  const completedRun = await surface.evaluate((element) => ({
+    elapsedMs: Number(element.getAttribute("data-elapsed-ms")),
+    generation: Number(element.getAttribute("data-run-generation")),
+    restartToken: Number(element.getAttribute("data-restart-token")),
+    score: Number(element.getAttribute("data-score")),
+  }));
+  expect(completedRun.elapsedMs).toBeGreaterThan(0);
+  expect(completedRun.generation).toBeGreaterThan(0);
+  expect(completedRun.restartToken).toBeGreaterThanOrEqual(0);
+  expect(completedRun.score).toBe(Math.floor(completedRun.elapsedMs / 100));
+
   await page.getByRole("button", { name: "Restart run" }).click();
+  await expect(surface).toHaveAttribute(
+    "data-restart-token",
+    String(completedRun.restartToken + 1),
+  );
+  await expect(surface).toHaveAttribute("data-run-generation", String(completedRun.generation + 1));
   await expect(surface).toHaveAttribute("data-simulation-phase", "running");
-  await expect(surface).toHaveAttribute("data-score", "0");
+  const restartedRun = await surface.evaluate((element) => ({
+    collisionId: element.getAttribute("data-collision-id"),
+    deathReason: element.getAttribute("data-death-reason"),
+    elapsedMs: Number(element.getAttribute("data-elapsed-ms")),
+    loopsCompleted: Number(element.getAttribute("data-loops-completed")),
+    phase: element.getAttribute("data-simulation-phase"),
+    score: Number(element.getAttribute("data-score")),
+  }));
+  expect(restartedRun).toMatchObject({
+    collisionId: "",
+    deathReason: "",
+    loopsCompleted: 0,
+    phase: "running",
+  });
+  expect(restartedRun.elapsedMs).toBeLessThan(completedRun.elapsedMs);
+  expect(restartedRun.score).toBe(Math.floor(restartedRun.elapsedMs / 100));
+  expect(restartedRun.score).toBeLessThan(completedRun.score);
 });
 
 test("permission denial can be retried before choosing fallback", async ({ page }) => {

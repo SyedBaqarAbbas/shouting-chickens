@@ -24,6 +24,7 @@ async function expectMountedWorld(page: import("@playwright/test").Page) {
 for (const viewport of [
   { name: "phone", width: 390, height: 844 },
   { name: "compact phone", width: 320, height: 568 },
+  { name: "short phone", width: 390, height: 568 },
   { name: "desktop", width: 1280, height: 900 },
 ]) {
   test(`keeps one centered portrait world at the ${viewport.name} viewport`, async ({ page }) => {
@@ -33,13 +34,33 @@ for (const viewport of [
     const surface = await expectMountedWorld(page);
     await expect(page.getByRole("heading", { name: "Shouting Chickens" })).toBeVisible();
     await expect(page.getByText("Keyboard + touch ready")).toBeVisible();
+    const pauseControl = page.getByRole("button", { name: "Pause run" });
+    const cameraControl = page.getByRole("button", { name: "Camera off · Enable" });
+    await expect(pauseControl).toBeVisible();
+    await expect(cameraControl).toBeVisible();
     const box = await surface.boundingBox();
-    const pauseBox = await page.getByRole("button", { name: "Pause run" }).boundingBox();
-    const cameraBox = await page.locator(".camera-toggle").boundingBox();
+    const pauseBox = await pauseControl.boundingBox();
+    const cameraBox = await cameraControl.boundingBox();
 
     expect(box).not.toBeNull();
     expect(pauseBox).not.toBeNull();
     expect(cameraBox).not.toBeNull();
+    expect(pauseBox!.height).toBeGreaterThanOrEqual(44);
+    expect(pauseBox!.width).toBeGreaterThanOrEqual(44);
+    expect(cameraBox!.height).toBeGreaterThanOrEqual(44);
+    expect(cameraBox!.width).toBeGreaterThanOrEqual(44);
+    for (const controlBox of [pauseBox!, cameraBox!]) {
+      expect(controlBox.x).toBeGreaterThanOrEqual(box!.x);
+      expect(controlBox.x + controlBox.width).toBeLessThanOrEqual(box!.x + box!.width);
+      expect(controlBox.y).toBeGreaterThanOrEqual(box!.y);
+      expect(controlBox.y + controlBox.height).toBeLessThanOrEqual(box!.y + box!.height);
+    }
+    const controlsOverlap =
+      pauseBox!.x < cameraBox!.x + cameraBox!.width &&
+      pauseBox!.x + pauseBox!.width > cameraBox!.x &&
+      pauseBox!.y < cameraBox!.y + cameraBox!.height &&
+      pauseBox!.y + pauseBox!.height > cameraBox!.y;
+    expect(controlsOverlap).toBe(false);
     expect(box!.width / box!.height).toBeCloseTo(432 / 768, 2);
     expect(box!.width).toBeLessThanOrEqual(432);
     expect(box!.height).toBeLessThanOrEqual(768);
@@ -51,7 +72,6 @@ for (const viewport of [
     expect(
       await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
     ).toBe(true);
-    expect(pauseBox!.x + pauseBox!.width).toBeLessThanOrEqual(cameraBox!.x);
   });
 }
 

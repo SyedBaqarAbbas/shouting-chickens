@@ -120,6 +120,23 @@ function buttonCopy(state: CameraUiState): string {
   }
 }
 
+function compactButtonCopy(state: CameraUiState): string {
+  switch (state) {
+    case "active":
+      return "Camera on";
+    case "paused":
+      return "Camera paused";
+    case "loading":
+      return "Starting…";
+    case "denied":
+    case "unavailable":
+      return "Retry camera";
+    case "disabled":
+    case "stopped":
+      return "Camera";
+  }
+}
+
 export function CameraComposition({ hidden = false, session }: CameraCompositionProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [selection, setSelection] = useState<"disabled" | "enabled" | "stopped">("disabled");
@@ -247,6 +264,7 @@ export function CameraComposition({ hidden = false, session }: CameraComposition
         <button
           className="camera-toggle"
           type="button"
+          aria-label={buttonCopy(state)}
           aria-describedby="camera-status"
           aria-pressed={state === "active" || state === "paused"}
           disabled={!session || state === "loading"}
@@ -255,7 +273,12 @@ export function CameraComposition({ hidden = false, session }: CameraComposition
           <span className="camera-toggle__icon" aria-hidden="true">
             {state === "active" || state === "paused" ? "●" : "◉"}
           </span>
-          <span>{buttonCopy(state)}</span>
+          <span className="camera-toggle__label" aria-hidden="true">
+            {buttonCopy(state)}
+          </span>
+          <span className="camera-toggle__label camera-toggle__label--compact" aria-hidden="true">
+            {compactButtonCopy(state)}
+          </span>
         </button>
         <p
           id="camera-status"
