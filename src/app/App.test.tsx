@@ -5,6 +5,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { BrowserMediaSession, MediaSessionSnapshot } from "../platform/media";
 import { App } from "./App";
 
+const expectedVersion = process.env.APP_VERSION?.trim() || "0.1.0";
+const expectedCommitSha = process.env.COMMIT_SHA?.trim() || "development";
+const expectedShortCommitSha =
+  expectedCommitSha === "development" ? expectedCommitSha : expectedCommitSha.slice(0, 7);
+
 vi.mock("../game/createGame", () => ({
   createGameRuntime: vi.fn(),
 }));
@@ -71,7 +76,12 @@ describe("App media ownership", () => {
     render(<App createMediaSession={() => session.value} />);
 
     const release = screen.getByRole("contentinfo", { name: "Release information" });
-    expect(release).toHaveTextContent("Version 0.1.0 · build development");
+    expect(release).toHaveTextContent(
+      `Version ${expectedVersion} · build ${expectedShortCommitSha}`,
+    );
+    const commitAbbreviation = release.querySelector("abbr");
+    expect(commitAbbreviation).toHaveTextContent(expectedShortCommitSha);
+    expect(commitAbbreviation).toHaveAttribute("title", expectedCommitSha);
     expect(screen.getByRole("link", { name: "Privacy" })).toHaveAttribute("href", "./privacy/");
     expect(screen.getByRole("link", { name: "Support" })).toHaveAttribute("href", "./support/");
   });
