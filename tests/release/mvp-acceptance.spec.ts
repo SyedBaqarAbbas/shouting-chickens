@@ -195,24 +195,19 @@ test("permission retry and invalid calibration recover into a valid voice run", 
     page.getByRole("heading", { name: "Calibrate your comfortable range" }),
   ).toBeFocused();
 
-  for (const [buttonName, dbfs] of [
-    ["Capture quiet", -40],
-    ["Next: comfortable voice", -39],
-    ["Next: strong voice", -38],
-  ] as const) {
-    await setSyntheticDbfs(page, dbfs);
-    await page.getByRole("button", { name: buttonName }).click();
-    if (buttonName !== "Next: strong voice") {
-      await expect(
-        page.getByRole("button", {
-          name: buttonName === "Capture quiet" ? "Next: comfortable voice" : "Next: strong voice",
-        }),
-      ).toBeEnabled();
-    }
-  }
+  await setSyntheticDbfs(page, -40);
+  await page.getByRole("button", { name: "Capture quiet" }).click();
+  await expect(page.getByRole("button", { name: "Next: comfortable voice" })).toBeEnabled();
+  await setSyntheticDbfs(page, -39);
+  await page.getByRole("button", { name: "Next: comfortable voice" }).click();
   await expect(page.getByRole("alert")).toContainText(/too close/i);
-  await page.getByRole("button", { name: "Retry calibration" }).click();
-  await completeValidCalibration(page);
+  await setSyntheticDbfs(page, -20);
+  await page.getByRole("button", { name: "Retry comfortable voice" }).click();
+  await expect(page.getByRole("button", { name: "Next: strong voice" })).toBeEnabled();
+  await setSyntheticDbfs(page, -5);
+  await page.getByRole("button", { name: "Next: strong voice" }).click();
+  await expect(page.getByRole("button", { name: "Use this calibration" })).toBeEnabled();
+  await page.getByRole("button", { name: "Use this calibration" }).click();
   await expect(page.getByRole("heading", { name: "Ready to run" })).toBeFocused();
 
   await page.getByRole("button", { name: "Start run" }).click();
@@ -232,7 +227,12 @@ async function completeValidCalibration(page: Page) {
     if (nextName) {
       await expect(page.getByRole("button", { name: nextName })).toBeEnabled();
     }
+    if (buttonName === "Next: comfortable voice") {
+      await expect(page.getByText(/Playback is unavailable here/)).toBeVisible();
+    }
   }
+  await expect(page.getByRole("button", { name: "Use this calibration" })).toBeEnabled();
+  await page.getByRole("button", { name: "Use this calibration" }).click();
 }
 
 async function numericAttribute(locator: ReturnType<Page["locator"]>, attribute: string) {

@@ -7,6 +7,7 @@ const CALIBRATION_STORAGE_KEY = "shouting-chickens.calibration.v1";
 const MIN_STAGE_SAMPLES = 12;
 const MIN_QUIET_TO_NORMAL_DB = 6;
 const MIN_NORMAL_TO_LOUD_DB = 4;
+const MAX_CLIPPED_SAMPLE_RATIO = 0.2;
 
 export const SAFE_CALIBRATION_GUIDANCE =
   "Use a comfortable voice only—do not shout. Move the microphone or retry somewhere quieter.";
@@ -56,27 +57,11 @@ export function percentile(values: readonly number[], ratio: number): number {
 }
 
 export function createCalibrationProfile(trace: CalibrationTrace): CalibrationResult {
-  if (
-    trace.quiet.length < MIN_STAGE_SAMPLES ||
-    trace.normal.length < MIN_STAGE_SAMPLES ||
-    trace.loud.length < MIN_STAGE_SAMPLES
-  ) {
-    return failure(
-      "not-enough-samples",
-      "Calibration needs a little more steady input at each step.",
-    );
-  }
-
-  const allSamples = [...trace.quiet, ...trace.normal, ...trace.loud];
-  if (
-    allSamples.some(
-      (sample) => sample.clipped || sample.peak >= CLIPPING_AMPLITUDE || sample.dbfs >= -0.25,
-    )
-  ) {
-    return failure(
-      "clipped",
-      "The microphone clipped during calibration, so its upper range is unreliable.",
-    );
+  for (const stage of ["quiet", "normal", "loud"] as const) {
+    const invalid = validateCalibrationStage(trace, stage);
+    if (invalid) {
+      return invalid;
+    }
   }
 
   const noiseFloorDb = percentile(
@@ -85,25 +70,12 @@ export function createCalibrationProfile(trace: CalibrationTrace): CalibrationRe
   );
   const normalDb = percentile(
     trace.normal.map((sample) => sample.dbfs),
-    0.5,
+    0.75,
   );
   const loudDb = percentile(
     trace.loud.map((sample) => sample.dbfs),
     0.75,
   );
-
-  if (normalDb - noiseFloorDb < MIN_QUIET_TO_NORMAL_DB) {
-    return failure(
-      "quiet-normal-range",
-      "The quiet and comfortable-voice levels are too close to distinguish reliably.",
-    );
-  }
-  if (loudDb - normalDb < MIN_NORMAL_TO_LOUD_DB) {
-    return failure(
-      "normal-loud-range",
-      "The comfortable and strong-voice levels are too close to distinguish reliably.",
-    );
-  }
 
   const normalLevel = normalizeDbfs(normalDb, {
     loudDb,
@@ -126,6 +98,70 @@ export function createCalibrationProfile(trace: CalibrationTrace): CalibrationRe
       schemaVersion: CALIBRATION_SCHEMA_VERSION,
     },
   };
+}
+
+export function validateCalibrationStage(
+  trace: CalibrationTrace,
+  stage: keyof CalibrationTrace,
+): CalibrationFailure | null {
+  const samples = trace[stage];
+  if (samples.length < MIN_STAGE_SAMPLES) {
+    return failure(
+      "not-enough-samples",
+      `The ${stageLabel(stage)} step needs a little more steady input.`,
+    );
+  }
+
+  const clippedSamples = samples.filter(
+    (sample) => sample.clipped || sample.peak >= CLIPPING_AMPLITUDE || sample.dbfs >= -0.25,
+  ).length;
+  const allowedTransientSamples = Math.max(
+    1,
+    Math.floor(samples.length * MAX_CLIPPED_SAMPLE_RATIO),
+  );
+  if (clippedSamples > allowedTransientSamples) {
+    return failure(
+      "clipped",
+      `The microphone clipped repeatedly during the ${stageLabel(stage)} step.`,
+    );
+  }
+
+  if (stage === "quiet") {
+    return null;
+  }
+
+  const quietDb = percentile(
+    trace.quiet.map((sample) => sample.dbfs),
+    0.75,
+  );
+  const normalDb = percentile(
+    trace.normal.map((sample) => sample.dbfs),
+    0.75,
+  );
+
+  if (normalDb - quietDb < MIN_QUIET_TO_NORMAL_DB) {
+    return failure(
+      "quiet-normal-range",
+      "The quiet and comfortable-voice levels are too close to distinguish reliably.",
+    );
+  }
+
+  if (stage === "normal") {
+    return null;
+  }
+
+  const loudDb = percentile(
+    trace.loud.map((sample) => sample.dbfs),
+    0.75,
+  );
+  if (loudDb - normalDb < MIN_NORMAL_TO_LOUD_DB) {
+    return failure(
+      "normal-loud-range",
+      "The comfortable and strong-voice levels are too close to distinguish reliably.",
+    );
+  }
+
+  return null;
 }
 
 export function normalizeDbfs(
@@ -203,6 +239,17 @@ function failure(code: CalibrationFailureCode, message: string): CalibrationFail
   };
 }
 
+function stageLabel(stage: keyof CalibrationTrace): string {
+  switch (stage) {
+    case "quiet":
+      return "quiet-room";
+    case "normal":
+      return "comfortable-voice";
+    case "loud":
+      return "strong-voice";
+  }
+}
+
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
 }
@@ -214,6 +261,7 @@ function isUnitInterval(value: unknown): value is number {
 export {
   CALIBRATION_SCHEMA_VERSION,
   CALIBRATION_STORAGE_KEY,
+  MAX_CLIPPED_SAMPLE_RATIO,
   MIN_NORMAL_TO_LOUD_DB,
   MIN_QUIET_TO_NORMAL_DB,
   MIN_STAGE_SAMPLES,

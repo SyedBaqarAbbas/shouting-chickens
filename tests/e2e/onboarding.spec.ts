@@ -3,8 +3,14 @@
 import { expect, test, type Page } from "@playwright/test";
 
 type SyntheticMicrophoneState = {
+  createdUrls: string[];
   dbfs: number;
+  pauses: number;
+  plays: number;
+  recorderStarts: number;
+  recorderStops: number;
   requests: number;
+  revokedUrls: string[];
   stops: number;
 };
 
@@ -53,8 +59,14 @@ async function installDeniedMicrophone(page: Page) {
 async function installSyntheticMicrophone(page: Page) {
   await page.addInitScript(() => {
     const harness: SyntheticMicrophoneState = {
+      createdUrls: [],
       dbfs: -60,
+      pauses: 0,
+      plays: 0,
+      recorderStarts: 0,
+      recorderStops: 0,
       requests: 0,
+      revokedUrls: [],
       stops: 0,
     };
     (
@@ -96,6 +108,36 @@ async function installSyntheticMicrophone(page: Page) {
 
       getVideoTracks() {
         return [];
+      }
+    }
+
+    class SyntheticMediaRecorder extends EventTarget {
+      readonly mimeType = "audio/webm";
+      state: RecordingState = "inactive";
+
+      constructor(readonly stream: SyntheticStream) {
+        super();
+      }
+
+      start() {
+        this.state = "recording";
+        harness.recorderStarts += 1;
+      }
+
+      stop() {
+        if (this.state === "inactive") {
+          return;
+        }
+        this.state = "inactive";
+        harness.recorderStops += 1;
+        queueMicrotask(() => {
+          const dataEvent = new Event("dataavailable") as Event & { data: Blob };
+          Object.defineProperty(dataEvent, "data", {
+            value: new Blob(["synthetic calibration voice"], { type: this.mimeType }),
+          });
+          this.dispatchEvent(dataEvent);
+          this.dispatchEvent(new Event("stop"));
+        });
       }
     }
 
@@ -144,6 +186,37 @@ async function installSyntheticMicrophone(page: Page) {
       configurable: true,
       value: SyntheticAudioContext,
     });
+    Object.defineProperty(window, "MediaRecorder", {
+      configurable: true,
+      value: SyntheticMediaRecorder,
+    });
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      value: () => {
+        const url = `blob:synthetic-calibration-${harness.createdUrls.length + 1}`;
+        harness.createdUrls.push(url);
+        return url;
+      },
+    });
+    Object.defineProperty(URL, "revokeObjectURL", {
+      configurable: true,
+      value: (url: string) => {
+        harness.revokedUrls.push(url);
+      },
+    });
+    Object.defineProperty(HTMLMediaElement.prototype, "play", {
+      configurable: true,
+      value() {
+        harness.plays += 1;
+        return Promise.resolve();
+      },
+    });
+    Object.defineProperty(HTMLMediaElement.prototype, "pause", {
+      configurable: true,
+      value() {
+        harness.pauses += 1;
+      },
+    });
 
     const mediaDevices = {
       addEventListener() {},
@@ -177,6 +250,17 @@ async function setSyntheticDb(page: Page, dbfs: number) {
     }
     harness.dbfs = nextDb;
   }, dbfs);
+}
+
+async function syntheticMicrophoneSnapshot(page: Page): Promise<SyntheticMicrophoneState> {
+  return page.evaluate(() => {
+    const harness = (window as typeof window & { __syntheticMicrophone?: SyntheticMicrophoneState })
+      .__syntheticMicrophone;
+    if (!harness) {
+      throw new Error("Synthetic microphone was not installed");
+    }
+    return structuredClone(harness);
+  });
 }
 
 test("first run is keyboard reachable and fallback reaches pause, results, and restart", async ({
@@ -343,7 +427,7 @@ test("a rejected runtime mount leaves the semantic recovery action clickable", a
   await expect(page.getByRole("heading", { name: "Ready to run" })).toBeFocused();
 });
 
-test("synthetic scalar input recovers invalid calibration and drives the Phaser meter", async ({
+test("synthetic scalar input retries only invalid stages and drives the Phaser meter", async ({
   page,
 }) => {
   await installSyntheticMicrophone(page);
@@ -353,38 +437,28 @@ test("synthetic scalar input recovers invalid calibration and drives the Phaser 
   await expect(
     page.getByRole("heading", { name: "Calibrate your comfortable range" }),
   ).toBeFocused();
+  const liveMeter = page.getByRole("meter", { name: "Live microphone activity" });
+  await expect(liveMeter).toBeVisible();
 
-  for (const [buttonName, dbfs] of [
-    ["Capture quiet", -40],
-    ["Next: comfortable voice", -39],
-    ["Next: strong voice", -38],
-  ] as const) {
-    await setSyntheticDb(page, dbfs);
-    await page.getByRole("button", { name: buttonName }).click();
-    if (buttonName !== "Next: strong voice") {
-      await expect(
-        page.getByRole("button", {
-          name: buttonName === "Capture quiet" ? "Next: comfortable voice" : "Next: strong voice",
-        }),
-      ).toBeEnabled();
-    }
-  }
-
+  await setSyntheticDb(page, -40);
+  await expect.poll(async () => Number(await liveMeter.getAttribute("value"))).toBeGreaterThan(0.5);
+  await page.getByRole("button", { name: "Capture quiet" }).click();
+  await expect(page.getByRole("button", { name: /Recording/ })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Next: comfortable voice" })).toBeEnabled();
+  await setSyntheticDb(page, -39);
+  await page.getByRole("button", { name: "Next: comfortable voice" }).click();
   await expect(page.getByRole("alert")).toContainText(/too close/i);
-  await page.getByRole("button", { name: "Retry calibration" }).click();
-
-  for (const [buttonName, nextName, dbfs] of [
-    ["Capture quiet", "Next: comfortable voice", -60],
-    ["Next: comfortable voice", "Next: strong voice", -30],
-    ["Next: strong voice", null, -10],
-  ] as const) {
-    await setSyntheticDb(page, dbfs);
-    await page.getByRole("button", { name: buttonName }).click();
-    if (nextName) {
-      await expect(page.getByRole("button", { name: nextName })).toBeEnabled();
-    }
-  }
-
+  await setSyntheticDb(page, -20);
+  await page.getByRole("button", { name: "Retry comfortable voice" }).click();
+  await expect(page.getByRole("button", { name: "Next: strong voice" })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Play recorded voice" })).toBeEnabled();
+  await setSyntheticDb(page, -18);
+  await page.getByRole("button", { name: "Next: strong voice" }).click();
+  await expect(page.getByRole("alert")).toContainText(/too close/i);
+  await setSyntheticDb(page, -5);
+  await page.getByRole("button", { name: "Retry strong voice" }).click();
+  await expect(page.getByRole("button", { name: "Use this calibration" })).toBeEnabled();
+  await page.getByRole("button", { name: "Use this calibration" }).click();
   await expect(page.getByRole("heading", { name: "Ready to run" })).toBeFocused();
   await expect(page.getByText(/Microphone \+ fallback controls/)).toBeVisible();
   await page.getByRole("button", { name: "Test your voice" }).click();
@@ -399,7 +473,7 @@ test("synthetic scalar input recovers invalid calibration and drives the Phaser 
   await setSyntheticDb(page, -40);
   await expect
     .poll(async () => Number(await surface.getAttribute("data-input-level")))
-    .toBeCloseTo(0.4, 1);
+    .toBeLessThan(0.05);
   await expect(surface).toHaveAttribute("data-active-input", "voice");
 
   await page.keyboard.down("Space");
@@ -420,4 +494,55 @@ test("synthetic scalar input recovers invalid calibration and drives the Phaser 
   });
   await page.getByRole("button", { name: "Restart run" }).click();
   await expect(surface).toHaveAttribute("data-simulation-phase", "running");
+});
+
+test("calibration playback reuses one stream and cleans up on advance and fallback", async ({
+  page,
+}) => {
+  await installSyntheticMicrophone(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Enable microphone" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Calibrate your comfortable range" }),
+  ).toBeFocused();
+
+  await setSyntheticDb(page, -60);
+  await page.getByRole("button", { name: "Capture quiet" }).click();
+  await expect(page.getByRole("button", { name: "Next: comfortable voice" })).toBeEnabled();
+
+  // Reproduce human reaction time: the stage begins on room tone and the
+  // player's comfortable voice arrives after the button click.
+  await page.getByRole("button", { name: "Next: comfortable voice" }).click();
+  await page.waitForTimeout(350);
+  await expect(page.getByRole("button", { name: /Recording/ })).toBeDisabled();
+  await setSyntheticDb(page, -30);
+  await expect(page.getByRole("button", { name: "Next: strong voice" })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Play recorded voice" })).toBeEnabled();
+
+  await page.getByRole("button", { name: "Play recorded voice" }).click();
+  await expect(page.getByRole("button", { name: "Stop playback" })).toBeVisible();
+  await page.getByRole("button", { name: "Next: strong voice" }).click();
+  await expect
+    .poll(async () => (await syntheticMicrophoneSnapshot(page)).revokedUrls)
+    .toContain("blob:synthetic-calibration-1");
+
+  await page.waitForTimeout(300);
+  await expect(page.getByRole("button", { name: /Recording/ })).toBeDisabled();
+  await setSyntheticDb(page, -10);
+  await expect(page.getByRole("button", { name: "Use this calibration" })).toBeEnabled();
+  await page.getByRole("button", { name: "Play recorded voice" }).click();
+  await expect(page.getByRole("button", { name: "Stop playback" })).toBeVisible();
+  await page.getByRole("button", { name: "Use keyboard or touch" }).click();
+  await expect(page.getByRole("heading", { name: "Ready to run" })).toBeFocused();
+
+  await expect
+    .poll(async () => (await syntheticMicrophoneSnapshot(page)).revokedUrls)
+    .toEqual(["blob:synthetic-calibration-1", "blob:synthetic-calibration-2"]);
+  const harness = await syntheticMicrophoneSnapshot(page);
+  expect(harness.requests).toBe(1);
+  expect(harness.recorderStarts).toBe(2);
+  expect(harness.recorderStops).toBe(2);
+  expect(harness.plays).toBe(2);
+  expect(harness.pauses).toBeGreaterThanOrEqual(2);
 });

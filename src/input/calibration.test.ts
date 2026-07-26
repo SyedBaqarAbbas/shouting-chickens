@@ -43,11 +43,11 @@ describe("percentile calibration", () => {
     }
   });
 
-  it("rejects short, clipped, and inadequate-range traces with safe guidance", () => {
+  it("rejects short, sustained clipping, and inadequate ranges with safe guidance", () => {
     const short = traceAt(-60, -30, -10, 3);
     const clipped = traceAt(-60, -30, -10);
     const clippedLoud = clipped.loud.map((sample, index) =>
-      index === 0 ? { ...sample, clipped: true } : sample,
+      index < 3 ? { ...sample, clipped: true } : sample,
     );
 
     expect(createCalibrationProfile(short)).toMatchObject({
@@ -67,6 +67,30 @@ describe("percentile calibration", () => {
     expect(createCalibrationProfile(traceAt(-60, -30, -27))).toMatchObject({
       code: "normal-loud-range",
       ok: false,
+    });
+  });
+
+  it("ignores one transient peak and uses the speech-weighted comfortable percentile", () => {
+    const trace = traceAt(-60, -55, -10);
+    const intermittentNormal = trace.normal.map((sample, index) => ({
+      ...sample,
+      dbfs: index < 4 ? -55 : -30,
+    }));
+    const isolatedPeak = trace.loud.map((sample, index) =>
+      index === 0 ? { ...sample, clipped: true, dbfs: -0.1, peak: 1 } : sample,
+    );
+
+    const result = createCalibrationProfile({
+      ...trace,
+      loud: isolatedPeak,
+      normal: intermittentNormal,
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      profile: {
+        normalDb: -30,
+      },
     });
   });
 

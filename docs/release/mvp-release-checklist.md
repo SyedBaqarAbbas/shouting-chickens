@@ -67,8 +67,10 @@ Verify every item:
 - [ ] Open the exact HTTPS release URL, match the visible version/short SHA prefix, and match the
       full SHA in `release.json`.
 - [ ] Confirm microphone is not requested before the enable gesture.
-- [ ] Grant microphone access and complete quiet, comfortable, and strong calibration without
-      painful shouting.
+- [ ] Grant microphone access; confirm the microphone icon and live meter respond before capture;
+      complete the visibly timed quiet, comfortable, and strong steps without painful shouting;
+      review each available voice clip; retry one invalid step without losing prior steps; then use
+      the explicit confirmation action.
 - [ ] Confirm one voice onset jumps, held comfortable sound adds bounded lift, and silence releases
       lift.
 - [ ] Deny/revoke microphone access, retry, and complete a keyboard/touch fallback run.

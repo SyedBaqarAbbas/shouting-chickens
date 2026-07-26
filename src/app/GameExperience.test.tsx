@@ -110,6 +110,16 @@ class FakeCalibrationCapture implements CalibrationCapture {
   readonly stop = vi.fn();
   readonly beginStage = vi.fn((stage: "quiet" | "normal" | "loud") => {
     this.snapshot = captureSnapshot({
+      ...this.snapshot,
+      clip: {
+        stage: stage === "quiet" ? null : stage,
+        status: stage === "quiet" ? "idle" : "recording",
+        url: null,
+      },
+      elapsedMs: 0,
+      progress: 0,
+      result: null,
+      sampleCount: 0,
       stage,
       status: "capturing",
     });
@@ -135,6 +145,12 @@ class FakeCalibrationCapture implements CalibrationCapture {
   completeStage(stage: "quiet" | "normal") {
     this.snapshot = captureSnapshot({
       completedStages: stage === "quiet" ? ["quiet"] : ["quiet", "normal"],
+      clip:
+        stage === "normal"
+          ? { stage: "normal", status: "unavailable", url: null }
+          : { stage: null, status: "idle", url: null },
+      elapsedMs: 1_500,
+      progress: 1,
       sampleCount: 12,
       stage,
       status: "stage-complete",
@@ -145,6 +161,9 @@ class FakeCalibrationCapture implements CalibrationCapture {
   succeed() {
     this.snapshot = captureSnapshot({
       completedStages: ["quiet", "normal", "loud"],
+      clip: { stage: "loud", status: "unavailable", url: null },
+      elapsedMs: 1_500,
+      progress: 1,
       result: { ok: true, profile: PROFILE },
       sampleCount: 12,
       stage: "loud",
@@ -153,11 +172,38 @@ class FakeCalibrationCapture implements CalibrationCapture {
     this.publish();
   }
 
-  fail(code: "not-enough-samples" | "clipped" | "quiet-normal-range" | "normal-loud-range") {
+  fail(
+    code: "not-enough-samples" | "clipped" | "quiet-normal-range" | "normal-loud-range",
+    stage: "quiet" | "normal" | "loud" = "loud",
+  ) {
     this.snapshot = captureSnapshot({
+      clip:
+        stage === "quiet"
+          ? { stage: null, status: "idle", url: null }
+          : { stage, status: "ready", url: `blob:failed-${stage}` },
+      completedStages:
+        stage === "quiet" ? [] : stage === "normal" ? ["quiet"] : ["quiet", "normal"],
       result: failure(code),
-      stage: "loud",
+      stage,
       status: "failed",
+    });
+    this.publish();
+  }
+
+  setLiveLevel(level: number) {
+    this.snapshot = captureSnapshot({
+      ...this.snapshot,
+      hasSignal: level > 0.05,
+      level,
+      quality: level > 0.8 ? "clipped" : "good",
+    });
+    this.publish();
+  }
+
+  setClipReady(stage: "normal" | "loud", url: string) {
+    this.snapshot = captureSnapshot({
+      ...this.snapshot,
+      clip: { stage, status: "ready", url },
     });
     this.publish();
   }
@@ -304,6 +350,7 @@ async function finishValidCalibration(harness: ReturnType<typeof renderHarness>)
   act(() => capture.completeStage("normal"));
   await user.click(screen.getByRole("button", { name: "Next: strong voice" }));
   act(() => capture.succeed());
+  await user.click(screen.getByRole("button", { name: "Use this calibration" }));
   await screen.findByRole("heading", { name: "Ready to run" });
   return { capture, user, voice: harness.voices[0]! };
 }
@@ -422,7 +469,7 @@ describe("GameExperience onboarding", () => {
       await screen.findByRole("heading", { name: "Calibrate your comfortable range" }),
     ).toBeVisible();
     expect(harness.captures).toHaveLength(2);
-    expect(screen.getByText("0 of 12 samples")).toBeVisible();
+    expect(screen.getByText("0%")).toBeVisible();
   });
 
   it("returns a suspended ready screen only after an explicit resume gesture", async () => {
@@ -496,26 +543,59 @@ describe("GameExperience onboarding", () => {
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
-  it.each(["not-enough-samples", "clipped", "quiet-normal-range", "normal-loud-range"] as const)(
-    "shows and resets the %s calibration failure",
-    async (code) => {
-      const harness = renderHarness();
-      const { capture, user } = await enterCalibration(harness);
-      await user.click(screen.getByRole("button", { name: "Capture quiet" }));
-
-      act(() => capture.fail(code));
-      expect(screen.getByRole("alert")).toHaveTextContent("comfortable voice only");
-      await user.click(screen.getByRole("button", { name: "Retry calibration" }));
-
-      expect(capture.reset).toHaveBeenCalledOnce();
-      expect(screen.getByRole("button", { name: "Capture quiet" })).toBeEnabled();
-      expect(screen.getByText("Signal quality: Weak")).toBeVisible();
-    },
-  );
-
-  it("completes every calibration stage, exposes literal quality, and really stops testing", async () => {
+  it.each([
+    ["not-enough-samples", "quiet"],
+    ["clipped", "loud"],
+    ["quiet-normal-range", "normal"],
+    ["normal-loud-range", "loud"],
+  ] as const)("shows and retries only the invalid %s calibration stage", async (code, stage) => {
     const harness = renderHarness();
-    const { capture, user, voice } = await finishValidCalibration(harness);
+    const { capture, user } = await enterCalibration(harness);
+    await user.click(screen.getByRole("button", { name: "Capture quiet" }));
+
+    act(() => capture.fail(code, stage));
+    expect(screen.getByRole("alert")).toHaveTextContent("comfortable voice only");
+    if (stage !== "quiet") {
+      expect(screen.getByRole("button", { name: "Play recorded voice" })).toBeVisible();
+    }
+    await user.click(
+      screen.getByRole("button", {
+        name:
+          stage === "quiet"
+            ? "Retry quiet"
+            : stage === "normal"
+              ? "Retry comfortable voice"
+              : "Retry strong voice",
+      }),
+    );
+
+    expect(capture.reset).not.toHaveBeenCalled();
+    expect(capture.beginStage).toHaveBeenLastCalledWith(stage);
+    expect(screen.getByText(/Microphone recording/)).toBeVisible();
+    if (stage !== "quiet") {
+      expect(screen.queryByRole("button", { name: "Play recorded voice" })).toBeNull();
+    }
+  });
+
+  it("shows live input, requires final confirmation, and really stops testing", async () => {
+    const harness = renderHarness();
+    const { capture, user } = await enterCalibration(harness);
+
+    act(() => capture.setLiveLevel(0.62));
+    expect(screen.getByRole("meter", { name: "Live microphone activity" })).toHaveValue(0.62);
+    expect(screen.getByText("Microphone active. The meter is responding.")).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: "Capture quiet" }));
+    act(() => capture.completeStage("quiet"));
+    await user.click(screen.getByRole("button", { name: "Next: comfortable voice" }));
+    act(() => capture.completeStage("normal"));
+    await user.click(screen.getByRole("button", { name: "Next: strong voice" }));
+    act(() => capture.succeed());
+
+    expect(screen.getByRole("heading", { name: "Calibrate your comfortable range" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Use this calibration" })).toBeEnabled();
+    await user.click(screen.getByRole("button", { name: "Use this calibration" }));
+    const voice = harness.voices[0]!;
 
     expect(capture.beginStage).toHaveBeenNthCalledWith(1, "quiet");
     expect(capture.beginStage).toHaveBeenNthCalledWith(2, "normal");
@@ -529,6 +609,32 @@ describe("GameExperience onboarding", () => {
     await user.click(screen.getByRole("button", { name: "Stop voice test" }));
     expect(voice.stop).toHaveBeenCalledOnce();
     expect(screen.getByText(/Voice test is off/)).toBeVisible();
+  });
+
+  it("cancels pending playback before advancing and ignores its stale resolution", async () => {
+    const pendingPlay = deferred<void>();
+    const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockReturnValue(pendingPlay.promise);
+    const pause = vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => undefined);
+    const harness = renderHarness();
+    const { capture, user } = await enterCalibration(harness);
+
+    await user.click(screen.getByRole("button", { name: "Capture quiet" }));
+    act(() => capture.completeStage("quiet"));
+    await user.click(screen.getByRole("button", { name: "Next: comfortable voice" }));
+    act(() => capture.completeStage("normal"));
+    act(() => capture.setClipReady("normal", "blob:test-normal"));
+
+    await user.click(screen.getByRole("button", { name: "Play recorded voice" }));
+    expect(play).toHaveBeenCalledOnce();
+    await user.click(screen.getByRole("button", { name: "Next: strong voice" }));
+    expect(pause).toHaveBeenCalled();
+    expect(capture.beginStage).toHaveBeenLastCalledWith("loud");
+
+    await act(async () => pendingPlay.resolve());
+    expect(screen.queryByRole("button", { name: "Stop playback" })).toBeNull();
+
+    play.mockRestore();
+    pause.mockRestore();
   });
 });
 
@@ -810,7 +916,10 @@ function captureSnapshot(
   overrides: Partial<CalibrationCaptureSnapshot> = {},
 ): CalibrationCaptureSnapshot {
   return {
+    clip: { stage: null, status: "idle", url: null },
     completedStages: [],
+    elapsedMs: 0,
+    hasSignal: false,
     level: 0,
     progress: 0,
     quality: "weak",
@@ -818,6 +927,7 @@ function captureSnapshot(
     sampleCount: 0,
     stage: "quiet",
     status: "idle",
+    targetDurationMs: 1_500,
     targetSamples: 12,
     ...overrides,
   };

@@ -11,7 +11,10 @@ Delivery is tracked in the
 [Shouting Chickens Linear project](https://linear.app/shouting-chickens/project/shouting-chickens-voice-controlled-browser-game-34f6b1b9dc80).
 
 The microphone is the signature controller, with keyboard and touch fallbacks.
-The front camera is optional. Raw audio and video stay on-device.
+The front camera is optional. Media stays on-device. During calibration, the
+game can hold one brief comfortable- or strong-voice clip in memory so the
+player can review it; that clip is replaced or discarded when calibration
+advances, retries, exits, or the tab closes.
 
 The supplied social-video screenshots are planning references only; production
 artwork and branding will be original.
@@ -62,7 +65,8 @@ Use the [release process](docs/release/release-process.md),
 [physical-device checklist](docs/release/mvp-release-checklist.md), and
 [support matrix](docs/release/support-matrix.md). The hosted artifact includes
 local Privacy and Support pages. The MVP processes microphone and optional
-camera input on-device and does not upload or save raw media.
+camera input on-device. It does not upload raw media or persist recordings;
+calibration playback is transient and remains only in the current tab.
 
 ## Handcrafted course contract
 

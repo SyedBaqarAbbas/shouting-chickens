@@ -715,7 +715,8 @@ export function GameExperience({
           </h2>
           <p>
             The microphone turns comfortable voice pulses into jumps and lift. Audio stays on this
-            device and is never recorded or uploaded.
+            device and is never uploaded. Calibration can keep one brief recording in this tab so
+            you can play it back before continuing.
           </p>
           <p className="safe-copy">
             You never need to scream. We calibrate to your comfortable range.
@@ -791,6 +792,7 @@ export function GameExperience({
           capture={calibration}
           headingRef={screenHeadingRef}
           onComplete={completeCalibration}
+          onFallback={chooseFallback}
         />
       ) : null}
 
@@ -991,21 +993,83 @@ interface CalibrationPanelProps {
   readonly capture: CalibrationCapture;
   readonly headingRef: React.RefObject<HTMLHeadingElement | null>;
   readonly onComplete: (profile: CalibrationProfile) => void;
+  readonly onFallback: () => void;
 }
 
-function CalibrationPanel({ capture, headingRef, onComplete }: CalibrationPanelProps) {
+function CalibrationPanel({ capture, headingRef, onComplete, onFallback }: CalibrationPanelProps) {
   const snapshot = useCalibrationSnapshot(capture);
-  const completionSent = useRef(false);
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const playbackGeneration = useRef(0);
+  const playbackRequested = useRef(false);
+  const [playingClip, setPlayingClip] = useState(false);
+  const [playbackError, setPlaybackError] = useState("");
   const copy = STAGE_COPY[snapshot.stage];
+  const activity = activityLabel(snapshot.level);
+  const clipPending = snapshot.clip.status === "recording" || snapshot.clip.status === "processing";
+  const canReviewClip =
+    snapshot.stage !== "quiet" &&
+    (snapshot.status === "stage-complete" ||
+      snapshot.status === "complete" ||
+      snapshot.status === "failed") &&
+    snapshot.clip.stage === snapshot.stage;
 
   useEffect(() => {
-    if (snapshot.result?.ok && !completionSent.current) {
-      completionSent.current = true;
-      onComplete(snapshot.result.profile);
+    const audio = audioRef.current;
+    return () => {
+      playbackGeneration.current += 1;
+      if (audio && (playbackRequested.current || !audio.paused)) {
+        audio.pause();
+      }
+      playbackRequested.current = false;
+    };
+  }, [snapshot.clip.url]);
+
+  const stopPlayback = () => {
+    playbackGeneration.current += 1;
+    const audio = audioRef.current;
+    if (audio) {
+      if (playbackRequested.current || playingClip || !audio.paused) {
+        audio.pause();
+      }
+      audio.currentTime = 0;
     }
-  }, [onComplete, snapshot.result]);
+    playbackRequested.current = false;
+    setPlayingClip(false);
+  };
+
+  const togglePlayback = () => {
+    const audio = audioRef.current;
+    if (!audio) {
+      return;
+    }
+    if (playingClip) {
+      stopPlayback();
+      return;
+    }
+
+    setPlaybackError("");
+    audio.currentTime = 0;
+    const generation = ++playbackGeneration.current;
+    playbackRequested.current = true;
+    void audio.play().then(
+      () => {
+        if (generation === playbackGeneration.current) {
+          setPlayingClip(true);
+        }
+      },
+      () => {
+        if (generation === playbackGeneration.current) {
+          playbackRequested.current = false;
+          setPlayingClip(false);
+          setPlaybackError("This browser could not play the calibration clip.");
+        }
+      },
+    );
+  };
 
   const beginCurrentOrNext = () => {
+    stopPlayback();
+    setPlaybackError("");
     if (snapshot.status === "stage-complete") {
       const next =
         snapshot.stage === "quiet" ? "normal" : snapshot.stage === "normal" ? "loud" : null;
@@ -1018,26 +1082,76 @@ function CalibrationPanel({ capture, headingRef, onComplete }: CalibrationPanelP
     capture.beginStage(snapshot.stage);
   };
 
+  const useCalibration = () => {
+    if (!snapshot.result?.ok) {
+      return;
+    }
+    stopPlayback();
+    onComplete(snapshot.result.profile);
+  };
+
   return (
-    <section className="flow-card" aria-labelledby="calibration-title">
+    <section className="flow-card flow-card--calibration" aria-labelledby="calibration-title">
       <p className="flow-step">Voice calibration</p>
       <h2 id="calibration-title" ref={headingRef} tabIndex={-1}>
         Calibrate your comfortable range
       </h2>
+      <ol className="calibration-steps" aria-label="Calibration steps">
+        {(["quiet", "normal", "loud"] as const).map((stage, index) => (
+          <li
+            key={stage}
+            className={
+              snapshot.completedStages.includes(stage)
+                ? "calibration-step calibration-step--complete"
+                : snapshot.stage === stage
+                  ? "calibration-step calibration-step--current"
+                  : "calibration-step"
+            }
+            aria-current={snapshot.stage === stage ? "step" : undefined}
+          >
+            <span aria-hidden="true">
+              {snapshot.completedStages.includes(stage) ? "✓" : index + 1}
+            </span>
+            {stage === "quiet" ? "Quiet" : stage === "normal" ? "Comfortable" : "Strong"}
+          </li>
+        ))}
+      </ol>
       <h3>{copy.heading}</h3>
       <p>{copy.instruction}</p>
       <p className="safe-copy">Never force your voice or use a painful shout.</p>
 
       <div className="calibration-meter">
-        <span>Signal quality: {qualityLabel(snapshot.quality)}</span>
+        <div
+          className={`calibration-microphone calibration-microphone--${activity.toLowerCase()}`}
+          aria-hidden="true"
+        >
+          <svg viewBox="0 0 32 32" focusable="false">
+            <rect x="11" y="3" width="10" height="17" rx="5" />
+            <path d="M7 15v1a9 9 0 0 0 18 0v-1M16 25v4M11 29h10" />
+          </svg>
+        </div>
+        <span className="calibration-mic-status" role="status">
+          {microphoneStatusCopy(snapshot)}
+        </span>
+        <meter
+          aria-label="Live microphone activity"
+          aria-valuetext={activity}
+          min={0}
+          max={1}
+          low={0.15}
+          high={0.75}
+          optimum={0.5}
+          value={snapshot.level}
+        />
+        <div className="calibration-progress-label">
+          <span>Capture progress</span>
+          <span>{Math.round(snapshot.progress * 100)}%</span>
+        </div>
         <progress
           aria-label={`${snapshot.stage} calibration progress`}
-          max={snapshot.targetSamples}
-          value={snapshot.sampleCount}
+          max={1}
+          value={snapshot.progress}
         />
-        <span>
-          {snapshot.sampleCount} of {snapshot.targetSamples} samples
-        </span>
       </div>
 
       {snapshot.result && !snapshot.result.ok ? (
@@ -1046,32 +1160,88 @@ function CalibrationPanel({ capture, headingRef, onComplete }: CalibrationPanelP
         </p>
       ) : null}
 
+      {canReviewClip ? (
+        <div className="calibration-playback">
+          <audio
+            ref={audioRef}
+            src={snapshot.clip.url ?? undefined}
+            onEnded={() => {
+              playbackGeneration.current += 1;
+              playbackRequested.current = false;
+              setPlayingClip(false);
+            }}
+            preload="metadata"
+          />
+          {snapshot.clip.status === "ready" && snapshot.clip.url ? (
+            <button type="button" className="secondary-action" onClick={togglePlayback}>
+              {playingClip ? "Stop playback" : "Play recorded voice"}
+            </button>
+          ) : snapshot.clip.status === "processing" ? (
+            <p role="status">Preparing your private playback…</p>
+          ) : snapshot.clip.status === "unavailable" || snapshot.clip.status === "failed" ? (
+            <p>Playback is unavailable here. The live meter still calibrated your voice.</p>
+          ) : null}
+          {playbackError ? (
+            <p className="flow-alert" role="alert">
+              {playbackError}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+
       <div className="flow-actions">
         {snapshot.status === "failed" ? (
           <button
             type="button"
             className="primary-action"
             onClick={() => {
-              completionSent.current = false;
-              capture.reset();
+              stopPlayback();
+              setPlaybackError("");
+              capture.beginStage(snapshot.stage);
             }}
           >
-            Retry calibration
+            Retry{" "}
+            {snapshot.stage === "quiet"
+              ? "quiet"
+              : snapshot.stage === "normal"
+                ? "comfortable voice"
+                : "strong voice"}
+          </button>
+        ) : snapshot.status === "complete" ? (
+          <button
+            type="button"
+            className="primary-action"
+            onClick={useCalibration}
+            disabled={clipPending}
+          >
+            {clipPending ? "Preparing playback…" : "Use this calibration"}
           </button>
         ) : (
           <button
             type="button"
             className="primary-action"
             onClick={beginCurrentOrNext}
-            disabled={snapshot.status === "capturing"}
+            disabled={snapshot.status === "capturing" || clipPending}
           >
             {snapshot.status === "capturing"
-              ? `Listening… ${snapshot.sampleCount} of ${snapshot.targetSamples}`
+              ? `Recording… ${Math.round(snapshot.progress * 100)}%`
               : snapshot.status === "stage-complete"
-                ? copy.next
+                ? clipPending
+                  ? "Preparing playback…"
+                  : copy.next
                 : copy.action}
           </button>
         )}
+        <button
+          type="button"
+          className="secondary-action"
+          onClick={() => {
+            stopPlayback();
+            onFallback();
+          }}
+        >
+          Use keyboard or touch
+        </button>
       </div>
     </section>
   );
@@ -1132,6 +1302,34 @@ function qualityLabel(quality: CalibrationCaptureSnapshot["quality"]): string {
     case "clipped":
       return "Clipped";
   }
+}
+
+function activityLabel(level: number): "Quiet" | "Low" | "Medium" | "Strong" {
+  if (level < 0.08) {
+    return "Quiet";
+  }
+  if (level < 0.35) {
+    return "Low";
+  }
+  if (level < 0.72) {
+    return "Medium";
+  }
+  return "Strong";
+}
+
+function microphoneStatusCopy(snapshot: CalibrationCaptureSnapshot): string {
+  if (snapshot.status === "capturing") {
+    return `Microphone recording ${snapshot.stage === "quiet" ? "room sound" : snapshot.stage === "normal" ? "your comfortable voice" : "your strong voice"}.`;
+  }
+  if (snapshot.status === "failed") {
+    return "Microphone active. Only this step needs another try.";
+  }
+  if (snapshot.status === "stage-complete" || snapshot.status === "complete") {
+    return "Capture complete. Microphone is still active.";
+  }
+  return snapshot.hasSignal
+    ? "Microphone active. The meter is responding."
+    : "Microphone active. Make a comfortable sound to check the meter.";
 }
 
 function voiceTestCopy(frame: VoiceFrame | null): string {

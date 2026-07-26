@@ -550,7 +550,9 @@ textarea {
 
 .calibration-meter {
   display: grid;
-  gap: 8px;
+  grid-template-columns: 48px 1fr;
+  gap: 8px 12px;
+  align-items: center;
   margin: 5px 0 18px;
   padding: 14px;
   border: 1px solid rgb(255 255 255 / 14%);
@@ -560,10 +562,149 @@ textarea {
   font-weight: 750;
 }
 
+.calibration-steps {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin: 0 0 14px;
+  padding: 0;
+  list-style: none;
+}
+
+.flow-card--calibration {
+  justify-content: flex-start;
+}
+
+.calibration-step {
+  display: grid;
+  min-width: 0;
+  justify-items: center;
+  gap: 4px;
+  color: rgb(235 244 255 / 52%);
+  font-size: 0.67rem;
+  font-weight: 750;
+  text-align: center;
+}
+
+.calibration-step span {
+  display: grid;
+  width: 25px;
+  height: 25px;
+  place-items: center;
+  border: 1px solid rgb(255 255 255 / 22%);
+  border-radius: 50%;
+  background: rgb(2 8 16 / 38%);
+}
+
+.calibration-step--current {
+  color: #f5d567;
+}
+
+.calibration-step--current span {
+  border-color: #f5d567;
+  box-shadow: 0 0 14px rgb(245 213 103 / 20%);
+}
+
+.calibration-step--complete {
+  color: #bff8d1;
+}
+
+.calibration-step--complete span {
+  border-color: #62dc94;
+  color: #071820;
+  background: #62dc94;
+}
+
+.calibration-microphone {
+  display: grid;
+  grid-row: span 2;
+  width: 48px;
+  height: 48px;
+  place-items: center;
+  border: 1px solid rgb(255 255 255 / 16%);
+  border-radius: 50%;
+  color: #b8c6d6;
+  background: rgb(7 18 32 / 84%);
+  transition:
+    color 120ms ease,
+    box-shadow 120ms ease,
+    transform 120ms ease;
+}
+
+.calibration-microphone svg {
+  width: 29px;
+  height: 29px;
+  overflow: visible;
+  fill: currentColor;
+}
+
+.calibration-microphone path {
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-width: 2.3;
+}
+
+.calibration-microphone--low {
+  color: #9bd7ff;
+  box-shadow: 0 0 14px rgb(83 190 255 / 18%);
+}
+
+.calibration-microphone--medium {
+  color: #62dc94;
+  box-shadow: 0 0 18px rgb(98 220 148 / 28%);
+  transform: scale(1.04);
+}
+
+.calibration-microphone--strong {
+  color: #f5d567;
+  box-shadow: 0 0 22px rgb(245 213 103 / 36%);
+  transform: scale(1.08);
+}
+
+.calibration-mic-status {
+  align-self: end;
+  line-height: 1.35;
+}
+
+.calibration-meter meter,
 .calibration-meter progress {
+  grid-column: 1 / -1;
   width: 100%;
   height: 16px;
   accent-color: #f5d567;
+}
+
+.calibration-meter meter {
+  height: 13px;
+}
+
+.calibration-progress-label {
+  display: flex;
+  grid-column: 1 / -1;
+  justify-content: space-between;
+  margin-top: 2px;
+  color: rgb(235 244 255 / 70%);
+  font-size: 0.72rem;
+}
+
+.calibration-playback {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 12px;
+  padding: 12px;
+  border: 1px solid rgb(98 220 148 / 25%);
+  border-radius: 12px;
+  background: rgb(98 220 148 / 7%);
+}
+
+.calibration-playback audio {
+  display: none;
+}
+
+.calibration-playback p {
+  margin: 0;
+  font-size: 0.78rem;
 }
 
 .voice-test {
@@ -684,6 +825,24 @@ textarea {
   .flow-card {
     justify-content: flex-start;
     padding: 20px;
+  }
+
+  .flow-card--calibration {
+    padding: 17px;
+  }
+
+  .flow-card--calibration h2 {
+    margin-bottom: 10px;
+    font-size: 1.5rem;
+  }
+
+  .flow-card--calibration .safe-copy {
+    padding-block: 7px;
+  }
+
+  .calibration-meter {
+    margin-bottom: 12px;
+    padding: 11px;
   }
 }
 

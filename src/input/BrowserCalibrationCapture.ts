@@ -1,5 +1,10 @@
 import { SystemClock, type CalibrationProfile, type Clock, type SignalQuality } from "../core";
 import {
+  BrowserCalibrationClipRecorder,
+  type CalibrationClipRecorder,
+  type CalibrationClipSnapshot,
+} from "../platform/audio/BrowserCalibrationClipRecorder";
+import {
   BrowserScalarEnergySource,
   type VoiceEnergyDependencies,
 } from "../platform/audio/BrowserScalarEnergySource";
@@ -7,6 +12,7 @@ import type { BrowserMediaSession } from "../platform/media";
 import {
   createCalibrationProfile,
   MIN_STAGE_SAMPLES,
+  validateCalibrationStage,
   type CalibrationFailure,
   type CalibrationResult,
   type CalibrationTrace,
@@ -23,9 +29,13 @@ export type CalibrationCaptureSnapshot = {
   readonly completedStages: readonly CalibrationStage[];
   readonly sampleCount: number;
   readonly targetSamples: number;
+  readonly elapsedMs: number;
+  readonly targetDurationMs: number;
   readonly progress: number;
   readonly level: number;
+  readonly hasSignal: boolean;
   readonly quality: SignalQuality;
+  readonly clip: CalibrationClipSnapshot;
   readonly result: CalibrationResult | null;
 };
 
@@ -45,6 +55,7 @@ interface ScalarEnergySource {
 }
 
 const STAGES: readonly CalibrationStage[] = ["quiet", "normal", "loud"];
+export const DEFAULT_CALIBRATION_STAGE_DURATION_MS = 1_500;
 
 export class BrowserCalibrationCapture implements CalibrationCapture {
   private readonly listeners = new Set<() => void>();
@@ -54,9 +65,12 @@ export class BrowserCalibrationCapture implements CalibrationCapture {
     quiet: [],
   };
   private readonly source: ScalarEnergySource;
+  private readonly clipRecorder: CalibrationClipRecorder;
+  private readonly unsubscribeClip: () => void;
   private snapshotValue: CalibrationCaptureSnapshot;
   private started = false;
   private lastPublishedAtMs = Number.NEGATIVE_INFINITY;
+  private stageStartedAtMs: number | null = null;
 
   constructor(
     session: BrowserMediaSession,
@@ -65,6 +79,8 @@ export class BrowserCalibrationCapture implements CalibrationCapture {
     private readonly targetSamples = MIN_STAGE_SAMPLES,
     private readonly publishIntervalMs = 100,
     source?: ScalarEnergySource,
+    private readonly minimumStageDurationMs = DEFAULT_CALIBRATION_STAGE_DURATION_MS,
+    clipRecorder?: CalibrationClipRecorder,
   ) {
     if (!Number.isInteger(targetSamples) || targetSamples < MIN_STAGE_SAMPLES) {
       throw new RangeError(`Calibration requires at least ${MIN_STAGE_SAMPLES} samples per stage`);
@@ -72,9 +88,20 @@ export class BrowserCalibrationCapture implements CalibrationCapture {
     if (!Number.isFinite(publishIntervalMs) || publishIntervalMs < 0) {
       throw new RangeError("Calibration publish interval must be non-negative");
     }
+    if (!Number.isFinite(minimumStageDurationMs) || minimumStageDurationMs <= 0) {
+      throw new RangeError("Calibration stage duration must be a positive finite number");
+    }
 
     this.source = source ?? new BrowserScalarEnergySource(session, dependencies);
+    this.clipRecorder = clipRecorder ?? new BrowserCalibrationClipRecorder(session);
     this.snapshotValue = this.createSnapshot("idle", "quiet");
+    this.unsubscribeClip = this.clipRecorder.subscribe(() => {
+      this.snapshotValue = Object.freeze({
+        ...this.snapshotValue,
+        clip: this.clipRecorder.getSnapshot(),
+      });
+      this.publish(true);
+    });
   }
 
   async start(): Promise<void> {
@@ -102,14 +129,21 @@ export class BrowserCalibrationCapture implements CalibrationCapture {
     }
 
     this.traces[stage] = [];
+    this.stageStartedAtMs = this.clock.now();
+    if (stage === "quiet") {
+      this.clipRecorder.discard();
+    } else {
+      this.clipRecorder.beginStage(stage);
+    }
     this.snapshotValue = this.createSnapshot("capturing", stage);
     this.publish(true);
   }
 
   finalize(): CalibrationResult {
     const result = createCalibrationProfile(this.trace());
+    const stage = result.ok ? "loud" : (STAGES[this.completedStages().length] ?? "loud");
     this.snapshotValue = {
-      ...this.createSnapshot(result.ok ? "complete" : "failed", "loud"),
+      ...this.createSnapshot(result.ok ? "complete" : "failed", stage),
       result,
     };
     this.publish(true);
@@ -120,6 +154,8 @@ export class BrowserCalibrationCapture implements CalibrationCapture {
     for (const stage of STAGES) {
       this.traces[stage] = [];
     }
+    this.stageStartedAtMs = null;
+    this.clipRecorder.discard();
     this.lastPublishedAtMs = Number.NEGATIVE_INFINITY;
     this.snapshotValue = this.createSnapshot("idle", "quiet");
     this.publish(true);
@@ -130,6 +166,8 @@ export class BrowserCalibrationCapture implements CalibrationCapture {
       return;
     }
 
+    this.clipRecorder.stop();
+    this.unsubscribeClip();
     this.source.stop();
     this.started = false;
     this.snapshotValue = {
@@ -149,25 +187,72 @@ export class BrowserCalibrationCapture implements CalibrationCapture {
   };
 
   private readonly handleEnergy = (frame: EnergyScalarFrame) => {
-    if (!this.started || this.snapshotValue.status !== "capturing") {
+    if (!this.started) {
+      return;
+    }
+
+    const quality = qualityFor(frame);
+    const level = clamp((frame.dbfs + 90) / 90, 0, 1);
+    const hasSignal = frame.dbfs > -85;
+
+    if (this.snapshotValue.status !== "capturing" || this.stageStartedAtMs === null) {
+      this.snapshotValue = Object.freeze({
+        ...this.snapshotValue,
+        hasSignal,
+        level,
+        quality,
+      });
+      this.publish(false);
       return;
     }
 
     const stage = this.snapshotValue.stage;
     const samples = this.traces[stage];
-    if (samples.length < this.targetSamples) {
+    const now = this.clock.now();
+    const sampleIntervalMs = this.minimumStageDurationMs / (this.targetSamples - 1);
+    const nextSampleAtMs = this.stageStartedAtMs + samples.length * sampleIntervalMs;
+    if (samples.length < this.targetSamples && now >= nextSampleAtMs) {
       samples.push({ ...frame });
     }
 
-    const quality = qualityFor(frame);
-    const level = clamp((frame.dbfs + 90) / 90, 0, 1);
-    const stageComplete = samples.length >= this.targetSamples;
+    const elapsedMs = Math.max(0, now - this.stageStartedAtMs);
+    const stageComplete =
+      samples.length >= this.targetSamples && elapsedMs >= this.minimumStageDurationMs;
 
-    this.snapshotValue = {
+    if (stageComplete) {
+      const invalid = validateCalibrationStage(this.trace(), stage);
+      if (invalid) {
+        this.traces[stage] = [];
+        this.stageStartedAtMs = null;
+        if (stage === "quiet") {
+          this.clipRecorder.discard();
+        } else {
+          this.clipRecorder.finishStage();
+        }
+        this.snapshotValue = Object.freeze({
+          ...this.createSnapshot("failed", stage),
+          hasSignal,
+          level,
+          quality,
+          result: invalid,
+        });
+        this.publish(true);
+        return;
+      }
+
+      this.stageStartedAtMs = null;
+      if (stage !== "quiet") {
+        this.clipRecorder.finishStage();
+      }
+    }
+
+    this.snapshotValue = Object.freeze({
       ...this.createSnapshot(stageComplete ? "stage-complete" : "capturing", stage),
+      elapsedMs: Math.min(elapsedMs, this.minimumStageDurationMs),
+      hasSignal,
       level,
       quality,
-    };
+    });
 
     if (stageComplete && stage === "loud") {
       this.finalize();
@@ -194,15 +279,27 @@ export class BrowserCalibrationCapture implements CalibrationCapture {
     stage: CalibrationStage,
   ): CalibrationCaptureSnapshot {
     const sampleCount = this.traces[stage].length;
+    const elapsedMs =
+      this.stageStartedAtMs === null
+        ? status === "stage-complete" || status === "complete"
+          ? this.minimumStageDurationMs
+          : 0
+        : Math.min(this.minimumStageDurationMs, this.clock.now() - this.stageStartedAtMs);
+    const sampleProgress = sampleCount / this.targetSamples;
+    const timeProgress = elapsedMs / this.minimumStageDurationMs;
     return Object.freeze({
+      clip: this.clipRecorder.getSnapshot(),
       completedStages: Object.freeze(this.completedStages()),
+      elapsedMs,
+      hasSignal: false,
       level: 0,
-      progress: Math.min(1, sampleCount / this.targetSamples),
+      progress: Math.min(1, sampleProgress, timeProgress),
       quality: "weak" as const,
       result: null,
       sampleCount,
       stage,
       status,
+      targetDurationMs: this.minimumStageDurationMs,
       targetSamples: this.targetSamples,
     });
   }
