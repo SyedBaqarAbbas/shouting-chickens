@@ -53,6 +53,12 @@ export type RunOptions = {
   gameplayVersion: string;
 };
 
+export type PresentationPreferences = {
+  muted: boolean;
+  reducedMotion: boolean;
+  screenShakeEnabled: boolean;
+};
+
 export type GamePhase = "ready" | "countdown" | "running" | "paused" | "game-over";
 
 export type GameSnapshot = {
@@ -66,6 +72,7 @@ export type GameSnapshot = {
 export type RunEndReason = "water" | "hazard" | "fall" | "quit" | "completed";
 
 export type RunSummary = {
+  runId: number;
   seed: string;
   gameplayVersion: string;
   score: number;
@@ -95,6 +102,7 @@ export interface GameRuntime {
   mount(container: HTMLElement): Promise<void>;
   startRun(options: RunOptions): void;
   setActiveInput(mode: ControlMode): void;
+  setPresentationPreferences?(preferences: PresentationPreferences): void;
   pause(): void;
   resume(): void;
   restart(): void;

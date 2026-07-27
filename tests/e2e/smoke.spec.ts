@@ -2,13 +2,13 @@ import { expect, test } from "@playwright/test";
 
 async function expectMountedWorld(page: import("@playwright/test").Page) {
   const fallback = page.getByRole("button", { name: "Use keyboard or touch" });
-  if (await fallback.isVisible().catch(() => false)) {
-    await fallback.click();
-    await page.getByRole("button", { name: "Start run" }).click();
-  } else if ((await page.getByTestId("game-surface").count()) === 0) {
-    await fallback.waitFor();
-    await fallback.click();
-    await page.getByRole("button", { name: "Start run" }).click();
+  const start = page.getByRole("button", { name: "Start run" });
+  if ((await page.getByTestId("game-surface").count()) === 0) {
+    await expect(fallback.or(start)).toBeVisible();
+    if (await fallback.isVisible().catch(() => false)) {
+      await fallback.click();
+    }
+    await start.click();
   }
 
   const surface = page.getByTestId("game-surface");
@@ -34,33 +34,45 @@ for (const viewport of [
     const surface = await expectMountedWorld(page);
     await expect(page.getByRole("heading", { name: "Shouting Chickens" })).toBeVisible();
     await expect(page.getByText("Keyboard + touch ready")).toBeVisible();
-    const pauseControl = page.getByRole("button", { name: "Pause run" });
-    const cameraControl = page.getByRole("button", { name: "Camera off · Enable" });
-    await expect(pauseControl).toBeVisible();
-    await expect(cameraControl).toBeVisible();
+    const controls = [
+      page.getByRole("button", { name: "Pause run" }),
+      page.getByRole("button", { name: "Mute game" }),
+      page.getByRole("button", { name: "Settings" }),
+      page.locator(".camera-toggle"),
+    ];
+    for (const control of controls) {
+      await expect(control).toBeVisible();
+    }
     const box = await surface.boundingBox();
-    const pauseBox = await pauseControl.boundingBox();
-    const cameraBox = await cameraControl.boundingBox();
+    const controlBoxes = await Promise.all(controls.map((control) => control.boundingBox()));
 
     expect(box).not.toBeNull();
-    expect(pauseBox).not.toBeNull();
-    expect(cameraBox).not.toBeNull();
-    expect(pauseBox!.height).toBeGreaterThanOrEqual(44);
-    expect(pauseBox!.width).toBeGreaterThanOrEqual(44);
-    expect(cameraBox!.height).toBeGreaterThanOrEqual(44);
-    expect(cameraBox!.width).toBeGreaterThanOrEqual(44);
-    for (const controlBox of [pauseBox!, cameraBox!]) {
-      expect(controlBox.x).toBeGreaterThanOrEqual(box!.x);
-      expect(controlBox.x + controlBox.width).toBeLessThanOrEqual(box!.x + box!.width);
-      expect(controlBox.y).toBeGreaterThanOrEqual(box!.y);
-      expect(controlBox.y + controlBox.height).toBeLessThanOrEqual(box!.y + box!.height);
+    for (const controlBox of controlBoxes) {
+      expect(controlBox).not.toBeNull();
+      const resolvedControlBox = controlBox!;
+      expect(resolvedControlBox.height).toBeGreaterThanOrEqual(44);
+      expect(resolvedControlBox.width).toBeGreaterThanOrEqual(44);
+      expect(resolvedControlBox.x).toBeGreaterThanOrEqual(box!.x);
+      expect(resolvedControlBox.x + resolvedControlBox.width).toBeLessThanOrEqual(
+        box!.x + box!.width,
+      );
+      expect(resolvedControlBox.y).toBeGreaterThanOrEqual(box!.y);
+      expect(resolvedControlBox.y + resolvedControlBox.height).toBeLessThanOrEqual(
+        box!.y + box!.height,
+      );
     }
-    const controlsOverlap =
-      pauseBox!.x < cameraBox!.x + cameraBox!.width &&
-      pauseBox!.x + pauseBox!.width > cameraBox!.x &&
-      pauseBox!.y < cameraBox!.y + cameraBox!.height &&
-      pauseBox!.y + pauseBox!.height > cameraBox!.y;
-    expect(controlsOverlap).toBe(false);
+    for (let first = 0; first < controlBoxes.length; first += 1) {
+      for (let second = first + 1; second < controlBoxes.length; second += 1) {
+        const firstBox = controlBoxes[first]!;
+        const secondBox = controlBoxes[second]!;
+        const controlsOverlap =
+          firstBox.x < secondBox.x + secondBox.width &&
+          firstBox.x + firstBox.width > secondBox.x &&
+          firstBox.y < secondBox.y + secondBox.height &&
+          firstBox.y + firstBox.height > secondBox.y;
+        expect(controlsOverlap).toBe(false);
+      }
+    }
     expect(box!.width / box!.height).toBeCloseTo(432 / 768, 2);
     expect(box!.width).toBeLessThanOrEqual(432);
     expect(box!.height).toBeLessThanOrEqual(768);
@@ -142,7 +154,9 @@ test("ends a run once and completely restarts the seeded authored course", async
     expect(ended.score).toBe(Math.floor(ended.elapsedMs / 100));
 
     await expect(page.getByRole("heading", { name: "Nice flight" })).toBeFocused();
-    await page.getByRole("button", { name: "Restart run" }).click();
+    await page.keyboard.press("Tab");
+    await expect(page.getByRole("button", { name: "Restart run" })).toBeFocused();
+    await page.keyboard.press("Enter");
     await expect(surface).toHaveAttribute("data-simulation-phase", "running");
     await expect(surface).toHaveAttribute("data-death-reason", "");
     await expect(surface).toHaveAttribute("data-collision-id", "");

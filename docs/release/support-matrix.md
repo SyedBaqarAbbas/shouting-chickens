@@ -20,7 +20,8 @@ SHO-20 owns the broader automated cross-browser and performance matrix.
 
 ## Known MVP limitations
 
-- Calibration, settings, scores, and progress are not persisted between visits.
+- Derived calibration, settings, and completed-run bests persist locally in a versioned browser
+  record. There is no cloud sync, and corrupt or unknown records restore defaults.
 - The MVP is not installable, has no service worker, and does not work offline. PWA behavior belongs
   to SHO-21.
 - There are no accounts, online leaderboards, cloud replays, remote analytics, speech recognition,
@@ -30,6 +31,9 @@ SHO-20 owns the broader automated cross-browser and performance matrix.
 - Phone landscape mode intentionally pauses play until portrait orientation returns.
 - Camera playback is optional. Denial, unavailability, or interruption uses the original fallback
   background and must not block play.
+- Space, Arrow Up, and playfield press/hold remain fully playable fallbacks in every control mode.
+  Mute, reduced motion, screen shake, camera preference, manual threshold, recalibration, pause, and
+  game-owned data reset are available from the accessible settings dialog.
 - AudioWorklet is preferred; an inaudible analyser-based scalar fallback is used where worklets are
   exposed but unavailable.
 - The Phaser bundle is intentionally unoptimized for the MVP and currently produces a Vite

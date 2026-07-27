@@ -296,8 +296,13 @@ test("first run is keyboard reachable and fallback reaches pause, results, and r
   await page.getByRole("button", { name: "Pause run" }).click();
   await expect(page.getByRole("heading", { name: "Take a breath" })).toBeFocused();
   await expect(surface).toHaveAttribute("data-simulation-phase", "paused");
-  await page.getByRole("button", { name: "Resume run" }).click();
+  await page.keyboard.press("Shift+Tab");
+  await expect(page.getByRole("button", { name: "Accessibility & settings" })).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(page.getByRole("button", { name: "Resume run" })).toBeFocused();
+  await page.keyboard.press("Escape");
   await expect(surface).toHaveAttribute("data-simulation-phase", "running");
+  await expect(page.getByRole("button", { name: "Pause run" })).toBeFocused();
 
   await expect(page.getByRole("heading", { name: "Nice flight" })).toBeFocused({
     timeout: 12_000,
@@ -315,7 +320,11 @@ test("first run is keyboard reachable and fallback reaches pause, results, and r
   expect(completedRun.restartToken).toBeGreaterThanOrEqual(0);
   expect(completedRun.score).toBe(Math.floor(completedRun.elapsedMs / 100));
 
-  await page.getByRole("button", { name: "Restart run" }).click();
+  await page.keyboard.press("Shift+Tab");
+  await expect(page.getByRole("button", { name: "Accessibility & settings" })).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(page.getByRole("button", { name: "Restart run" })).toBeFocused();
+  await page.keyboard.press("Enter");
   await expect(surface).toHaveAttribute(
     "data-restart-token",
     String(completedRun.restartToken + 1),

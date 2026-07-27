@@ -42,15 +42,22 @@
 
       <h2>Storage and network</h2>
       <p>
-        This MVP does not persist calibration, scores, settings, or replays. The host serves the
-        application files over HTTPS; the game itself has no gameplay API or telemetry endpoint.
+        The game stores one versioned browser record containing derived calibration thresholds,
+        completed-run bests and statistics, camera preference, mute, reduced motion, screen shake,
+        preferred controls, and the safety-copy version. It never stores raw voice samples,
+        calibration playback, camera video, or media recordings. You can remove every Shouting
+        Chickens key from <strong>Accessibility &amp; settings</strong> without clearing unrelated
+        origin storage. The host serves application files over HTTPS; the game itself has no
+        gameplay API or telemetry endpoint.
       </p>
 
       <h2>Your controls</h2>
       <p>
-        Use the game’s fallback controls at any time. You can also revoke microphone or camera
-        permission in your browser or operating-system settings. Reloading or closing the tab stops
-        active media tracks.
+        Use Space, Arrow Up, or playfield press-and-hold at any time. You can recalibrate, adjust
+        the derived threshold within safe bounds, mute the game, reduce motion, disable screen
+        shake, pause, reset local data, or revoke microphone/camera permission. Reloading or closing
+        the tab stops active media tracks. A saved camera preference never starts the camera
+        automatically.
       </p>
 
       <p class="notice">

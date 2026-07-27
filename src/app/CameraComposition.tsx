@@ -16,6 +16,8 @@ export type CameraUiState =
 
 interface CameraCompositionProps {
   readonly hidden?: boolean;
+  readonly onPreferenceChange?: (enabled: boolean) => void;
+  readonly preferred?: boolean;
   readonly session: CameraSession | null;
 }
 
@@ -137,7 +139,12 @@ function compactButtonCopy(state: CameraUiState): string {
   }
 }
 
-export function CameraComposition({ hidden = false, session }: CameraCompositionProps) {
+export function CameraComposition({
+  hidden = false,
+  onPreferenceChange,
+  preferred = false,
+  session,
+}: CameraCompositionProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [selection, setSelection] = useState<"disabled" | "enabled" | "stopped">("disabled");
   const [lifecycleFailed, setLifecycleFailed] = useState(false);
@@ -219,6 +226,7 @@ export function CameraComposition({ hidden = false, session }: CameraComposition
         session.stopCamera();
         setLifecycleFailed(false);
         setSelection("stopped");
+        onPreferenceChange?.(false);
       } catch {
         setLifecycleFailed(true);
       }
@@ -227,6 +235,7 @@ export function CameraComposition({ hidden = false, session }: CameraComposition
 
     setLifecycleFailed(false);
     setSelection("enabled");
+    onPreferenceChange?.(true);
     try {
       void session.requestCameraFromGesture().catch(() => {
         setLifecycleFailed(true);
@@ -264,7 +273,11 @@ export function CameraComposition({ hidden = false, session }: CameraComposition
         <button
           className="camera-toggle"
           type="button"
-          aria-label={buttonCopy(state)}
+          aria-label={
+            preferred && (state === "disabled" || state === "stopped")
+              ? "Camera preferred · Enable"
+              : buttonCopy(state)
+          }
           aria-describedby="camera-status"
           aria-pressed={state === "active" || state === "paused"}
           disabled={!session || state === "loading"}
@@ -287,7 +300,9 @@ export function CameraComposition({ hidden = false, session }: CameraComposition
           aria-live="polite"
           data-camera-state={state}
         >
-          {statusCopy(state)}
+          {preferred && (state === "disabled" || state === "stopped")
+            ? "Camera is preferred. Enable it from this button when you want the on-device composition."
+            : statusCopy(state)}
         </p>
       </div>
     </>

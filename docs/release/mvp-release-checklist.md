@@ -99,6 +99,25 @@ Status at repository handoff: **not run**. Complete on a real Android phone in s
 Run the same twelve checks listed for iOS Safari. Record Android-specific permission wording,
 audio-routing behavior, and any vendor battery/background restrictions.
 
+## Settings and accessibility release review
+
+Run on both physical targets and the desktop release candidate:
+
+- [ ] Complete a run with only keyboard, then one with playfield press-and-hold; confirm Pause,
+      Mute, Settings, and camera controls have at least `44 × 44 px` touch targets.
+- [ ] Traverse onboarding, settings, pause, and results with Tab/Shift+Tab; confirm visible focus,
+      logical order, contained modal focus, Escape/Close behavior, and focus restoration.
+- [ ] Review headings, control names, status announcements, and text-plus-color feedback with a
+      screen reader; run axe with no serious or critical violations.
+- [ ] Toggle mute, reduced motion, screen shake, and camera preference; confirm state applies
+      immediately and survives reload without automatically requesting camera access.
+- [ ] Recalibrate and adjust the derived voice threshold only within `38%–72%`; confirm no raw
+      sample, playback URL, or media data appears in browser storage.
+- [ ] Complete a valid run and verify bests persist; cancel/quit an invalid run and verify it cannot
+      update bests.
+- [ ] Corrupt/replace the versioned local record and confirm safe recovery; reset local data and
+      confirm all `shouting-chickens.*` keys clear while unrelated origin storage remains.
+
 ## Evidence handling
 
 - Attach separate text evidence records for iOS and Android to SHO-14 or another durable HTTPS

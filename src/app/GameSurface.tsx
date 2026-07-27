@@ -22,11 +22,14 @@ export interface GameSurfaceProps {
   readonly calibration: CalibrationProfile | null;
   readonly createRuntime?: typeof createGameRuntime;
   readonly landscape: boolean;
+  readonly muted?: boolean;
   readonly onEvent: GameEventListener;
   readonly onReady?: () => void;
   readonly onVoiceUnavailable?: (error: unknown) => void;
   readonly pauseReasons: ReadonlySet<string>;
+  readonly reducedMotion?: boolean;
   readonly restartToken: number;
+  readonly screenShakeEnabled?: boolean;
   readonly voiceInput: InputSource | null;
 }
 
@@ -41,11 +44,14 @@ export function GameSurface({
   calibration,
   createRuntime = createGameRuntime,
   landscape,
+  muted = false,
   onEvent,
   onReady,
   onVoiceUnavailable,
   pauseReasons,
+  reducedMotion = false,
   restartToken,
+  screenShakeEnabled = true,
   voiceInput,
 }: GameSurfaceProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -54,15 +60,32 @@ export function GameSurface({
   const pausedRef = useRef(pauseReasons.size > 0);
   const restartTokenRef = useRef(restartToken);
   const [initialActiveInput] = useState(activeInput);
+  const [systemReducedMotion] = useState(
+    () => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false,
+  );
+  const effectiveReducedMotion = reducedMotion || systemReducedMotion;
   const onEventRef = useRef(onEvent);
   const onReadyRef = useRef(onReady);
   const onVoiceUnavailableRef = useRef(onVoiceUnavailable);
+  const presentationRef = useRef({
+    muted,
+    reducedMotion: effectiveReducedMotion,
+    screenShakeEnabled,
+  });
 
   useEffect(() => {
     onEventRef.current = onEvent;
     onReadyRef.current = onReady;
     onVoiceUnavailableRef.current = onVoiceUnavailable;
   }, [onEvent, onReady, onVoiceUnavailable]);
+
+  useEffect(() => {
+    presentationRef.current = {
+      muted,
+      reducedMotion: effectiveReducedMotion,
+      screenShakeEnabled,
+    };
+  }, [effectiveReducedMotion, muted, screenShakeEnabled]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -103,6 +126,7 @@ export function GameSurface({
       runtime = createRuntime({ clock, inputSourceFactory });
       runtimeRef.current = runtime;
       runtime.setActiveInput(initialActiveInput);
+      runtime.setPresentationPreferences?.(presentationRef.current);
       unsubscribe = runtime.subscribe((event) => {
         if (event.type === "fatal-error") {
           fatalEventSeen = true;
@@ -159,6 +183,14 @@ export function GameSurface({
   }, [activeInput]);
 
   useEffect(() => {
+    runtimeRef.current?.setPresentationPreferences?.({
+      muted,
+      reducedMotion: effectiveReducedMotion,
+      screenShakeEnabled,
+    });
+  }, [effectiveReducedMotion, muted, screenShakeEnabled]);
+
+  useEffect(() => {
     pausedRef.current = pauseReasons.size > 0;
     const runtime = runtimeRef.current;
     if (!runtime || !mountedRef.current) {
@@ -196,6 +228,9 @@ export function GameSurface({
       data-restart-token={restartToken}
       data-orientation={landscape ? "landscape" : "portrait"}
       data-blocked={blocked ? "true" : "false"}
+      data-muted={muted ? "true" : "false"}
+      data-reduced-motion={effectiveReducedMotion ? "true" : "false"}
+      data-screen-shake-enabled={screenShakeEnabled ? "true" : "false"}
       aria-hidden={blocked}
       aria-label="Shouting Chickens game. Tap the playfield, press Space, or use Up Arrow to jump."
       inert={blocked}

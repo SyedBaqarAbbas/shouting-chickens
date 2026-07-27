@@ -5,6 +5,7 @@ import {
   type CalibrationProfile,
   type ControlMode,
   type GameEvent,
+  type KeyValueStorage,
   type RunSummary,
   type VoiceFrame,
 } from "../core";
@@ -18,6 +19,17 @@ import {
 } from "../input";
 import { BrowserVoiceInputSource } from "../platform/audio";
 import type { BrowserMediaSession, MediaSessionSnapshot } from "../platform/media";
+import {
+  CURRENT_COPY_VERSION,
+  MAX_MANUAL_THRESHOLD,
+  MIN_MANUAL_THRESHOLD,
+  LocalGameDataStore,
+  createBrowserLocalGameDataStore,
+  isValidCompletedLocalRun,
+  withManualJumpThreshold,
+  type GameSettings,
+  type LocalGameData,
+} from "../platform/persistence";
 import { CameraComposition } from "./CameraComposition";
 import { GameSurface } from "./GameSurface";
 
@@ -29,8 +41,10 @@ type Screen =
   | "countdown"
   | "playing"
   | "results"
+  | "settings"
   | "runtime-error";
 type SetupScreen = "permission" | "calibration" | "ready";
+type SettingsReturnScreen = "permission" | "ready" | "playing" | "results";
 
 export type VoiceInput = BrowserVoiceInputSource;
 
@@ -44,6 +58,7 @@ export interface GameExperienceProps {
   ) => VoiceInput;
   readonly landscape: boolean;
   readonly session: BrowserMediaSession;
+  readonly storage?: KeyValueStorage;
 }
 
 const STAGE_COPY: Record<
@@ -95,12 +110,30 @@ export function GameExperience({
     new BrowserVoiceInputSource(session, new SystemClock(), profile),
   landscape,
   session,
+  storage,
 }: GameExperienceProps) {
+  const localDataStore = useMemo(
+    () => (storage ? new LocalGameDataStore(storage) : createBrowserLocalGameDataStore()),
+    [storage],
+  );
+  const initialLocalData = useMemo(() => localDataStore.read(), [localDataStore]);
   const media = useMediaSnapshot(session);
-  const [screen, setScreen] = useState<Screen>("permission");
+  const [screen, setScreen] = useState<Screen>(() =>
+    initialScreenForLocalData(initialLocalData.data),
+  );
   const [requestingMicrophone, setRequestingMicrophone] = useState(false);
-  const [inputMode, setInputMode] = useState<ControlMode>("keyboard-touch");
-  const [profile, setProfile] = useState<CalibrationProfile | null>(null);
+  const [inputMode, setInputMode] = useState<ControlMode>(
+    initialLocalData.data.settings.controlPreference,
+  );
+  const [profile, setProfile] = useState<CalibrationProfile | null>(
+    initialLocalData.data.calibration,
+  );
+  const [localData, setLocalData] = useState<LocalGameData>(initialLocalData.data);
+  const [storageNotice, setStorageNotice] = useState(
+    initialLocalData.recovered
+      ? "Saved game data was unreadable, so safe defaults were restored."
+      : "",
+  );
   const [calibration, setCalibration] = useState<CalibrationCapture | null>(null);
   const [voiceInput, setVoiceInput] = useState<VoiceInput | null>(null);
   const [countdown, setCountdown] = useState(3);
@@ -118,16 +151,56 @@ export function GameExperience({
   const countdownGeneration = useRef(0);
   const voiceTestGeneration = useRef(0);
   const setupReturnScreen = useRef<SetupScreen>("permission");
+  const [settingsReturnScreen, setSettingsReturnScreen] =
+    useState<SettingsReturnScreen>("permission");
+  const settingsFocusLabel = useRef("");
+  const restoreSettingsFocus = useRef(false);
+  const flowDialogRef = useRef<HTMLElement>(null);
+  const restorePauseFocus = useRef(false);
+  const expectedRunId = useRef(1);
+  const recordedRunId = useRef<number | null>(null);
   const setupRequiresCalibration = useRef(true);
   const mounted = useRef(true);
   const calibrationRef = useRef<CalibrationCapture | null>(null);
   const voiceInputRef = useRef<VoiceInput | null>(null);
+  const localDataRef = useRef(initialLocalData.data);
   const lastAnnouncement = useRef({
     atMs: Number.NEGATIVE_INFINITY,
     band: "",
     phase: "",
     second: -1,
   });
+
+  const commitLocalData = useCallback(
+    (next: LocalGameData) => {
+      const saved = localDataStore.write(next);
+      localDataRef.current = saved;
+      setLocalData(saved);
+      return saved;
+    },
+    [localDataStore],
+  );
+
+  const updateSettings = useCallback(
+    (patch: Partial<GameSettings>) =>
+      commitLocalData({
+        ...localDataRef.current,
+        settings: {
+          ...localDataRef.current.settings,
+          ...patch,
+        },
+      }),
+    [commitLocalData],
+  );
+
+  const saveCalibration = useCallback(
+    (nextProfile: CalibrationProfile | null) =>
+      commitLocalData({
+        ...localDataRef.current,
+        calibration: nextProfile,
+      }),
+    [commitLocalData],
+  );
 
   useEffect(() => {
     calibrationRef.current = calibration;
@@ -146,6 +219,36 @@ export function GameExperience({
       voiceInputRef.current?.stop();
     };
   }, []);
+
+  useEffect(() => {
+    if (screen === "settings" || !restoreSettingsFocus.current) {
+      return;
+    }
+    restoreSettingsFocus.current = false;
+    const label = settingsFocusLabel.current;
+    queueMicrotask(() => {
+      if (!mounted.current) {
+        return;
+      }
+      const button = [...document.querySelectorAll<HTMLButtonElement>("button")].find(
+        (candidate) =>
+          (candidate.getAttribute("aria-label") ?? candidate.textContent?.trim()) === label,
+      );
+      button?.focus();
+    });
+  }, [screen]);
+
+  useEffect(() => {
+    if (screen !== "playing" || manualPaused || !restorePauseFocus.current) {
+      return;
+    }
+    restorePauseFocus.current = false;
+    queueMicrotask(() => {
+      if (mounted.current) {
+        document.querySelector<HTMLButtonElement>('button[aria-label="Pause run"]')?.focus();
+      }
+    });
+  }, [manualPaused, screen]);
 
   const beginCalibration = useCallback(
     async (generation: number) => {
@@ -210,6 +313,21 @@ export function GameExperience({
           return;
         }
 
+        if (profile) {
+          voiceInput?.stop();
+          const nextVoiceInput = createVoiceInput(session, profile);
+          setVoiceInput(nextVoiceInput);
+          setInputMode("voice");
+          updateSettings({
+            controlPreference: "voice",
+            copyVersion: CURRENT_COPY_VERSION,
+          });
+          setVoiceProcessingFailed(false);
+          setFlowError("");
+          setScreen("ready");
+          return;
+        }
+
         await beginCalibration(generation);
       },
       () => {
@@ -219,7 +337,15 @@ export function GameExperience({
         }
       },
     );
-  }, [beginCalibration, requestingMicrophone, session]);
+  }, [
+    beginCalibration,
+    createVoiceInput,
+    profile,
+    requestingMicrophone,
+    session,
+    updateSettings,
+    voiceInput,
+  ]);
 
   useEffect(() => {
     if (!isSetupMicrophoneInterruption(screen, inputMode, media.microphone.status)) {
@@ -292,8 +418,11 @@ export function GameExperience({
     voiceInput?.stop();
     setCalibration(null);
     setVoiceInput(null);
-    setProfile(null);
     setInputMode("keyboard-touch");
+    updateSettings({
+      controlPreference: "keyboard-touch",
+      copyVersion: CURRENT_COPY_VERSION,
+    });
     setTestingVoice(false);
     setTestFrame(null);
     setRequestingMicrophone(false);
@@ -312,7 +441,7 @@ export function GameExperience({
     }
     void fallback.catch(() => undefined);
     setScreen("ready");
-  }, [calibration, session, voiceInput]);
+  }, [calibration, session, updateSettings, voiceInput]);
 
   const resumeSetupMicrophone = useCallback(() => {
     if (requestingMicrophone) {
@@ -364,6 +493,7 @@ export function GameExperience({
     ++voiceTestGeneration.current;
     voiceInput?.stop();
     setInputMode("keyboard-touch");
+    updateSettings({ controlPreference: "keyboard-touch" });
     setVoiceProcessingFailed(false);
     setTestingVoice(false);
     setTestFrame(null);
@@ -374,7 +504,7 @@ export function GameExperience({
     } catch {
       // Keyboard and touch are already active and independent of media cleanup.
     }
-  }, [session, voiceInput]);
+  }, [session, updateSettings, voiceInput]);
 
   const completeCalibration = useCallback(
     (nextProfile: CalibrationProfile) => {
@@ -389,6 +519,15 @@ export function GameExperience({
       }
 
       const nextVoiceInput = createVoiceInput(session, nextProfile);
+      commitLocalData({
+        ...localDataRef.current,
+        calibration: nextProfile,
+        settings: {
+          ...localDataRef.current.settings,
+          controlPreference: "voice",
+          copyVersion: CURRENT_COPY_VERSION,
+        },
+      });
       setProfile(nextProfile);
       setVoiceInput(nextVoiceInput);
       setInputMode("voice");
@@ -396,7 +535,7 @@ export function GameExperience({
       setFlowError("");
       setScreen("ready");
     },
-    [calibration, createVoiceInput, session, voiceInput],
+    [calibration, commitLocalData, createVoiceInput, session, voiceInput],
   );
 
   const recalibrate = useCallback(() => {
@@ -404,9 +543,17 @@ export function GameExperience({
     ++voiceTestGeneration.current;
     voiceInput?.stop();
     setVoiceInput(null);
+    setProfile(null);
+    saveCalibration(null);
     setTestingVoice(false);
-    void beginCalibration(generation);
-  }, [beginCalibration, voiceInput]);
+    if (media.microphone.status === "active") {
+      void beginCalibration(generation);
+    } else {
+      updateSettings({ controlPreference: "voice" });
+      setFlowError("Enable the microphone to create a fresh calibration.");
+      setScreen("permission");
+    }
+  }, [beginCalibration, media.microphone.status, saveCalibration, updateSettings, voiceInput]);
 
   const toggleVoiceTest = useCallback(() => {
     if (!voiceInput) {
@@ -458,14 +605,21 @@ export function GameExperience({
   }, [testingVoice, voiceInput]);
 
   const startCountdown = useCallback(() => {
+    if (localDataRef.current.settings.controlPreference === "voice" && inputMode !== "voice") {
+      setFlowError("Voice is preferred. Enable the microphone before starting the next run.");
+      setScreen("permission");
+      return;
+    }
     ++voiceTestGeneration.current;
     voiceInput?.stop();
     setTestingVoice(false);
     setTestFrame(null);
     setFlowError("");
+    expectedRunId.current = 1;
+    recordedRunId.current = null;
     setCountdown(3);
     setScreen("countdown");
-  }, [voiceInput]);
+  }, [inputMode, voiceInput]);
 
   useEffect(() => {
     if (screen !== "countdown") {
@@ -540,46 +694,77 @@ export function GameExperience({
     if (mediaPause) {
       reasons.add("media");
     }
+    if (screen === "settings" && settingsReturnScreen === "playing") {
+      reasons.add("settings");
+    }
     return reasons;
-  }, [landscape, manualPaused, media.visibility, mediaPause]);
+  }, [landscape, manualPaused, media.visibility, mediaPause, screen, settingsReturnScreen]);
 
-  const handleGameEvent = useCallback((event: GameEvent) => {
-    if (event.type === "fatal-error") {
-      setRuntimeError(event.error.message);
-      setScreen("runtime-error");
-      return;
-    }
+  const handleGameEvent = useCallback(
+    (event: GameEvent) => {
+      if (event.type === "fatal-error") {
+        setRuntimeError(event.error.message);
+        setScreen("runtime-error");
+        return;
+      }
 
-    if (event.type === "ended") {
-      setSummary(event.value);
-      setScreen("results");
-      setLiveStatus(`Run ended. Survived ${(event.value.survivalMs / 1_000).toFixed(1)} seconds.`);
-      return;
-    }
+      if (event.type === "ended") {
+        if (event.value.runId !== expectedRunId.current) {
+          return;
+        }
+        const validCompletedRun = isValidCompletedLocalRun(event.value);
+        if (validCompletedRun && recordedRunId.current === event.value.runId) {
+          return;
+        }
+        if (validCompletedRun) {
+          recordedRunId.current = event.value.runId;
+          const current = localDataRef.current;
+          commitLocalData({
+            ...current,
+            statistics: {
+              bestDistance: Math.max(current.statistics.bestDistance, event.value.distance),
+              bestScore: Math.max(current.statistics.bestScore, event.value.score),
+              completedRuns: current.statistics.completedRuns + 1,
+              longestSurvivalMs: Math.max(
+                current.statistics.longestSurvivalMs,
+                event.value.survivalMs,
+              ),
+            },
+          });
+        }
+        setSummary(event.value);
+        setScreen("results");
+        setLiveStatus(
+          `Run ended. Survived ${(event.value.survivalMs / 1_000).toFixed(1)} seconds.`,
+        );
+        return;
+      }
 
-    const second = Math.floor(event.value.elapsedMs / 1_000);
-    const band =
-      event.value.normalizedInput < 0.15
-        ? "quiet"
-        : event.value.normalizedInput < 0.7
-          ? "active"
-          : "strong";
-    const bandCanAnnounce =
-      band !== lastAnnouncement.current.band &&
-      event.value.elapsedMs - lastAnnouncement.current.atMs >= 1_000;
-    const phaseChanged = event.value.phase !== lastAnnouncement.current.phase;
-    if (second !== lastAnnouncement.current.second || bandCanAnnounce || phaseChanged) {
-      lastAnnouncement.current = {
-        atMs: event.value.elapsedMs,
-        band,
-        phase: event.value.phase,
-        second,
-      };
-      setLiveStatus(
-        `${event.value.phase}. ${second} seconds. Input ${band}. Score ${event.value.score}.`,
-      );
-    }
-  }, []);
+      const second = Math.floor(event.value.elapsedMs / 1_000);
+      const band =
+        event.value.normalizedInput < 0.15
+          ? "quiet"
+          : event.value.normalizedInput < 0.7
+            ? "active"
+            : "strong";
+      const bandCanAnnounce =
+        band !== lastAnnouncement.current.band &&
+        event.value.elapsedMs - lastAnnouncement.current.atMs >= 1_000;
+      const phaseChanged = event.value.phase !== lastAnnouncement.current.phase;
+      if (second !== lastAnnouncement.current.second || bandCanAnnounce || phaseChanged) {
+        lastAnnouncement.current = {
+          atMs: event.value.elapsedMs,
+          band,
+          phase: event.value.phase,
+          second,
+        };
+        setLiveStatus(
+          `${event.value.phase}. ${second} seconds. Input ${band}. Score ${event.value.score}.`,
+        );
+      }
+    },
+    [commitLocalData],
+  );
 
   const retryInterruptedMicrophone = useCallback(() => {
     const generation = ++operationGeneration.current;
@@ -653,6 +838,14 @@ export function GameExperience({
   }, [session]);
 
   const restartRun = useCallback(() => {
+    if (localDataRef.current.settings.controlPreference === "voice" && inputMode !== "voice") {
+      setSummary(null);
+      setFlowError("Voice is preferred. Enable the microphone before starting the next run.");
+      setScreen("permission");
+      return;
+    }
+    expectedRunId.current += 1;
+    recordedRunId.current = null;
     setSummary(null);
     setManualPaused(false);
     setRestartToken((value) => value + 1);
@@ -664,6 +857,11 @@ export function GameExperience({
     };
     setScreen("playing");
     setLiveStatus("Run restarted.");
+  }, [inputMode]);
+
+  const resumeManualRun = useCallback(() => {
+    restorePauseFocus.current = true;
+    setManualPaused(false);
   }, []);
 
   const quitToReady = useCallback(() => {
@@ -673,15 +871,166 @@ export function GameExperience({
     setScreen("ready");
   }, []);
 
+  const openSettings = useCallback(() => {
+    if (
+      screen !== "permission" &&
+      screen !== "ready" &&
+      screen !== "playing" &&
+      screen !== "results"
+    ) {
+      return;
+    }
+    const activeElement = document.activeElement;
+    settingsFocusLabel.current =
+      activeElement instanceof HTMLButtonElement
+        ? (activeElement.getAttribute("aria-label") ?? activeElement.textContent?.trim() ?? "")
+        : "";
+    restoreSettingsFocus.current = false;
+    setSettingsReturnScreen(screen);
+    setScreen("settings");
+  }, [screen]);
+
+  const closeSettings = useCallback(() => {
+    restoreSettingsFocus.current = true;
+    const destination = settingsReturnScreen;
+    if (
+      destination === "ready" &&
+      localDataRef.current.settings.controlPreference === "voice" &&
+      inputMode !== "voice"
+    ) {
+      setFlowError("Voice is preferred. Enable the microphone before the next run.");
+      setScreen("permission");
+      return;
+    }
+    setScreen(destination);
+  }, [inputMode, settingsReturnScreen]);
+
+  const changeSettings = useCallback(
+    (patch: Partial<GameSettings>) => {
+      const next = updateSettings(patch);
+      if (patch.controlPreference === "keyboard-touch" && inputMode !== "keyboard-touch") {
+        ++operationGeneration.current;
+        ++voiceTestGeneration.current;
+        voiceInput?.stop();
+        setVoiceInput(null);
+        setInputMode("keyboard-touch");
+        setTestingVoice(false);
+        setTestFrame(null);
+        try {
+          void session.useFallbackInput().catch(() => undefined);
+        } catch {
+          // Fallback controls do not depend on successful media cleanup.
+        }
+      } else if (
+        patch.controlPreference === "voice" &&
+        profile &&
+        media.microphone.status === "active" &&
+        settingsReturnScreen !== "playing"
+      ) {
+        voiceInput?.stop();
+        const nextVoiceInput = createVoiceInput(session, profile);
+        setVoiceInput(nextVoiceInput);
+        setInputMode("voice");
+      }
+      return next;
+    },
+    [
+      createVoiceInput,
+      inputMode,
+      media.microphone.status,
+      profile,
+      session,
+      settingsReturnScreen,
+      updateSettings,
+      voiceInput,
+    ],
+  );
+
+  const changeManualThreshold = useCallback(
+    (threshold: number) => {
+      if (!profile || settingsReturnScreen === "playing") {
+        return;
+      }
+      const adjusted = withManualJumpThreshold(profile, threshold);
+      saveCalibration(adjusted);
+      setProfile(adjusted);
+      if (inputMode === "voice" && media.microphone.status === "active") {
+        voiceInput?.stop();
+        setVoiceInput(createVoiceInput(session, adjusted));
+      }
+      setLiveStatus(`Voice threshold set to ${Math.round(adjusted.jumpEnterLevel * 100)}%.`);
+    },
+    [
+      createVoiceInput,
+      inputMode,
+      media.microphone.status,
+      profile,
+      saveCalibration,
+      session,
+      settingsReturnScreen,
+      voiceInput,
+    ],
+  );
+
+  const resetLocalData = useCallback(() => {
+    ++operationGeneration.current;
+    ++countdownGeneration.current;
+    ++voiceTestGeneration.current;
+    calibration?.stop();
+    voiceInput?.stop();
+    try {
+      session.stopCamera();
+    } catch {
+      // The session may already be idle or closed.
+    }
+    try {
+      void session.useFallbackInput().catch(() => undefined);
+    } catch {
+      // Reset remains complete even when browser media cleanup rejects.
+    }
+
+    const reset = localDataStore.reset();
+    localDataRef.current = reset;
+    setLocalData(reset);
+    setProfile(null);
+    setCalibration(null);
+    setVoiceInput(null);
+    setInputMode("keyboard-touch");
+    setTestingVoice(false);
+    setTestFrame(null);
+    setSummary(null);
+    setManualPaused(false);
+    setFlowError("");
+    setRuntimeError("");
+    setStorageNotice("Local game data cleared. Safe defaults were restored.");
+    setupReturnScreen.current = "permission";
+    setupRequiresCalibration.current = true;
+    setSetupCalibrationRequired(true);
+    setScreen("permission");
+  }, [calibration, localDataStore, session, voiceInput]);
+
   const keepGameMounted =
-    screen === "playing" || screen === "results" || screen === "runtime-error";
+    screen === "playing" ||
+    screen === "results" ||
+    screen === "runtime-error" ||
+    (screen === "settings" &&
+      (settingsReturnScreen === "playing" || settingsReturnScreen === "results"));
   const gameBlocked = screen !== "playing" || pauseReasons.size > 0;
 
   return (
-    <>
+    <div
+      className="experience-root"
+      data-muted={localData.settings.muted ? "true" : "false"}
+      data-reduced-motion={localData.settings.reducedMotion ? "true" : "false"}
+      data-screen-shake-enabled={localData.settings.screenShakeEnabled ? "true" : "false"}
+    >
       <CameraComposition
         session={session}
         hidden={landscape || screen !== "playing" || pauseReasons.size > 0}
+        preferred={localData.settings.cameraEnabled}
+        onPreferenceChange={(cameraEnabled) => {
+          updateSettings({ cameraEnabled });
+        }}
       />
 
       <header className="game-heading" aria-hidden={screen === "playing" ? undefined : true}>
@@ -696,13 +1045,20 @@ export function GameExperience({
           calibration={profile}
           createRuntime={createRuntime}
           landscape={landscape}
+          muted={localData.settings.muted}
           onEvent={handleGameEvent}
+          onReady={() => {
+            expectedRunId.current = 1;
+            recordedRunId.current = null;
+          }}
           onVoiceUnavailable={() => {
             setVoiceProcessingFailed(true);
             setFlowError("Voice input stopped. The run is paused; retry or use fallback controls.");
           }}
           pauseReasons={pauseReasons}
+          reducedMotion={localData.settings.reducedMotion}
           restartToken={restartToken}
+          screenShakeEnabled={localData.settings.screenShakeEnabled}
           voiceInput={voiceInput}
         />
       ) : null}
@@ -721,6 +1077,11 @@ export function GameExperience({
           <p className="safe-copy">
             You never need to scream. We calibrate to your comfortable range.
           </p>
+          {storageNotice ? (
+            <p className="storage-notice" role="status">
+              {storageNotice}
+            </p>
+          ) : null}
           {flowError || media.microphone.status === "unsupported" ? (
             <p className="flow-alert" role="alert">
               {flowError || permissionFailureCopy("unsupported")}
@@ -744,6 +1105,9 @@ export function GameExperience({
             </button>
             <button type="button" className="secondary-action" onClick={chooseFallback}>
               Use keyboard or touch
+            </button>
+            <button type="button" className="secondary-action" onClick={openSettings}>
+              Accessibility &amp; settings
             </button>
           </div>
           <p className="control-help">Fallback: press Space / ↑, or tap and hold the playfield.</p>
@@ -808,6 +1172,28 @@ export function GameExperience({
               {inputMode === "voice" ? "Microphone + fallback controls" : "Keyboard + touch"}
             </strong>
           </p>
+          <p className="control-help control-help--left">
+            Fallback always works: Space / ↑, or tap and hold the playfield.
+          </p>
+          <dl className="best-stats" aria-label="Saved local run statistics">
+            <div>
+              <dt>Best score</dt>
+              <dd>{localData.statistics.bestScore}</dd>
+            </div>
+            <div>
+              <dt>Best survival</dt>
+              <dd>{(localData.statistics.longestSurvivalMs / 1_000).toFixed(1)}s</dd>
+            </div>
+            <div>
+              <dt>Finished runs</dt>
+              <dd>{localData.statistics.completedRuns}</dd>
+            </div>
+          </dl>
+          {storageNotice ? (
+            <p className="storage-notice" role="status">
+              {storageNotice}
+            </p>
+          ) : null}
           {flowError ? (
             <p className="flow-alert" role="alert">
               {flowError}
@@ -838,6 +1224,9 @@ export function GameExperience({
                 Set up microphone
               </button>
             )}
+            <button type="button" className="secondary-action" onClick={openSettings}>
+              Accessibility &amp; settings
+            </button>
           </div>
         </section>
       ) : null}
@@ -879,11 +1268,30 @@ export function GameExperience({
           >
             <span aria-hidden="true">Ⅱ</span> Pause
           </button>
+          <button
+            type="button"
+            className="pause-button"
+            onClick={() => changeSettings({ muted: !localData.settings.muted })}
+            aria-label={localData.settings.muted ? "Unmute game" : "Mute game"}
+            aria-pressed={localData.settings.muted}
+          >
+            {localData.settings.muted ? "Sound off" : "Sound on"}
+          </button>
+          <button type="button" className="pause-button" onClick={openSettings}>
+            Settings
+          </button>
         </div>
       ) : null}
 
       {screen === "playing" && manualPaused ? (
-        <section className="flow-card flow-card--modal" role="dialog" aria-labelledby="pause-title">
+        <section
+          ref={flowDialogRef}
+          className="flow-card flow-card--modal"
+          role="dialog"
+          aria-labelledby="pause-title"
+          aria-modal="true"
+          onKeyDown={(event) => containDialogFocus(event, flowDialogRef.current, resumeManualRun)}
+        >
           <p className="flow-step">Run paused</p>
           <h2 id="pause-title" ref={screenHeadingRef} tabIndex={-1}>
             Take a breath
@@ -892,14 +1300,34 @@ export function GameExperience({
             The timer and course are frozen. Other pause reasons must also clear before play
             resumes.
           </p>
-          <button type="button" className="primary-action" onClick={() => setManualPaused(false)}>
-            Resume run
-          </button>
+          <div className="flow-actions">
+            <button type="button" className="primary-action" onClick={resumeManualRun}>
+              Resume run
+            </button>
+            <button
+              type="button"
+              className="secondary-action"
+              onClick={() => changeSettings({ muted: !localData.settings.muted })}
+              aria-pressed={localData.settings.muted}
+            >
+              {localData.settings.muted ? "Unmute game" : "Mute game"}
+            </button>
+            <button type="button" className="secondary-action" onClick={openSettings}>
+              Accessibility &amp; settings
+            </button>
+          </div>
         </section>
       ) : null}
 
       {screen === "playing" && mediaPause && !manualPaused ? (
-        <section className="flow-card flow-card--modal" role="dialog" aria-labelledby="media-title">
+        <section
+          ref={flowDialogRef}
+          className="flow-card flow-card--modal"
+          role="dialog"
+          aria-labelledby="media-title"
+          aria-modal="true"
+          onKeyDown={(event) => containDialogFocus(event, flowDialogRef.current)}
+        >
           <p className="flow-step">Input paused</p>
           <h2 id="media-title" ref={screenHeadingRef} tabIndex={-1}>
             Microphone needs attention
@@ -929,9 +1357,12 @@ export function GameExperience({
 
       {screen === "results" && summary ? (
         <section
+          ref={flowDialogRef}
           className="flow-card flow-card--modal"
           role="dialog"
           aria-labelledby="results-title"
+          aria-modal="true"
+          onKeyDown={(event) => containDialogFocus(event, flowDialogRef.current, quitToReady)}
         >
           <p className="flow-step">Run complete</p>
           <h2 id="results-title" ref={screenHeadingRef} tabIndex={-1}>
@@ -951,6 +1382,10 @@ export function GameExperience({
               <dd>{summary.reason}</dd>
             </div>
           </dl>
+          <p className="best-result" role="status">
+            Local best: {localData.statistics.bestScore} · Finished runs:{" "}
+            {localData.statistics.completedRuns}
+          </p>
           <div className="flow-actions">
             <button type="button" className="primary-action" onClick={restartRun}>
               Restart run
@@ -958,8 +1393,24 @@ export function GameExperience({
             <button type="button" className="secondary-action" onClick={quitToReady}>
               Quit to ready screen
             </button>
+            <button type="button" className="secondary-action" onClick={openSettings}>
+              Accessibility &amp; settings
+            </button>
           </div>
         </section>
+      ) : null}
+
+      {screen === "settings" ? (
+        <SettingsPanel
+          data={localData}
+          headingRef={screenHeadingRef}
+          onChange={changeSettings}
+          onClose={closeSettings}
+          onRecalibrate={recalibrate}
+          onReset={resetLocalData}
+          onThresholdChange={changeManualThreshold}
+          runActive={settingsReturnScreen === "playing"}
+        />
       ) : null}
 
       {screen === "runtime-error" ? (
@@ -975,17 +1426,284 @@ export function GameExperience({
         </section>
       ) : null}
 
-      <p className="accessible-game-status" role="status" aria-live="polite">
+      <p
+        className="accessible-game-status"
+        role="status"
+        aria-live="polite"
+        aria-hidden={screen === "settings" ? true : undefined}
+      >
         {liveStatus}
       </p>
 
-      <footer className="bootstrap-note">
+      <footer className="bootstrap-note" aria-hidden={screen === "settings" ? true : undefined}>
         <span className="status-dot" aria-hidden="true" />
         <span>
           {inputMode === "voice" ? "Microphone + fallback ready" : "Keyboard + touch ready"}
         </span>
       </footer>
-    </>
+    </div>
+  );
+}
+
+function containDialogFocus(
+  event: React.KeyboardEvent<HTMLElement>,
+  panel: HTMLElement | null,
+  onEscape?: () => void,
+) {
+  if (event.key === "Escape") {
+    if (onEscape) {
+      event.preventDefault();
+      onEscape();
+    }
+    return;
+  }
+  if (event.key !== "Tab" || !panel) {
+    return;
+  }
+
+  const focusable = [
+    ...panel.querySelectorAll<HTMLElement>("button, input, select, [tabindex]"),
+  ].filter(
+    (element) =>
+      !element.hasAttribute("disabled") && !element.hasAttribute("hidden") && element.tabIndex >= 0,
+  );
+  const first = focusable[0];
+  const last = focusable.at(-1);
+  if (!first || !last) {
+    event.preventDefault();
+    panel.focus();
+    return;
+  }
+
+  const active = document.activeElement;
+  const activeIsFocusable = active instanceof HTMLElement && focusable.includes(active);
+  if (event.shiftKey && (!activeIsFocusable || active === first)) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && (!activeIsFocusable || active === last)) {
+    event.preventDefault();
+    first.focus();
+  }
+}
+
+interface SettingsPanelProps {
+  readonly data: LocalGameData;
+  readonly headingRef: React.RefObject<HTMLHeadingElement | null>;
+  readonly onChange: (patch: Partial<GameSettings>) => LocalGameData;
+  readonly onClose: () => void;
+  readonly onRecalibrate: () => void;
+  readonly onReset: () => void;
+  readonly onThresholdChange: (threshold: number) => void;
+  readonly runActive: boolean;
+}
+
+function SettingsPanel({
+  data,
+  headingRef,
+  onChange,
+  onClose,
+  onRecalibrate,
+  onReset,
+  onThresholdChange,
+  runActive,
+}: SettingsPanelProps) {
+  const [confirmingReset, setConfirmingReset] = useState(false);
+  const panelRef = useRef<HTMLElement>(null);
+  const thresholdPercent = Math.round(
+    (data.calibration?.jumpEnterLevel ?? MIN_MANUAL_THRESHOLD) * 100,
+  );
+
+  return (
+    <section
+      ref={panelRef}
+      className="flow-card flow-card--settings"
+      role="dialog"
+      aria-labelledby="settings-title"
+      aria-modal="true"
+      onKeyDown={(event) => containDialogFocus(event, panelRef.current, onClose)}
+    >
+      <p className="flow-step">{runActive ? "Run paused" : "Local preferences"}</p>
+      <h2 id="settings-title" ref={headingRef} tabIndex={-1}>
+        Accessibility &amp; settings
+      </h2>
+      <p className="settings-intro">
+        These settings and derived statistics stay in this browser. Microphone samples, recordings,
+        and camera video are never saved here.
+      </p>
+
+      <fieldset className="settings-group">
+        <legend>Controls</legend>
+        <label className="setting-row setting-row--stacked">
+          <span>
+            Preferred input
+            <small>Keyboard, touch, and pause remain available in every mode.</small>
+          </span>
+          <select
+            aria-label="Preferred input"
+            value={data.settings.controlPreference}
+            disabled={runActive}
+            onChange={(event) => {
+              onChange({ controlPreference: event.target.value as ControlMode });
+            }}
+          >
+            <option value="keyboard-touch">Keyboard + touch</option>
+            <option value="voice">Voice + fallback</option>
+          </select>
+        </label>
+        {runActive ? (
+          <p className="settings-help" id="active-run-settings-help">
+            Input preference and calibration can be changed after this run.
+          </p>
+        ) : null}
+        {data.calibration ? (
+          <label className="setting-row setting-row--stacked">
+            <span>
+              Voice jump threshold: {thresholdPercent}%
+              <small id="threshold-help">
+                Lower is more sensitive. Safe adjustment is {MIN_MANUAL_THRESHOLD * 100}%–
+                {MAX_MANUAL_THRESHOLD * 100}%.
+              </small>
+            </span>
+            <input
+              type="range"
+              aria-label="Voice jump threshold"
+              aria-describedby="threshold-help"
+              min={MIN_MANUAL_THRESHOLD * 100}
+              max={MAX_MANUAL_THRESHOLD * 100}
+              step={1}
+              value={thresholdPercent}
+              disabled={runActive}
+              onChange={(event) => {
+                onThresholdChange(Number(event.target.value) / 100);
+              }}
+            />
+          </label>
+        ) : (
+          <p className="settings-help">No derived voice calibration is saved.</p>
+        )}
+        <button
+          type="button"
+          className="secondary-action"
+          disabled={runActive}
+          onClick={onRecalibrate}
+        >
+          {data.calibration ? "Recalibrate microphone" : "Calibrate microphone"}
+        </button>
+      </fieldset>
+
+      <fieldset className="settings-group">
+        <legend>Presentation</legend>
+        <SettingCheckbox
+          checked={data.settings.cameraEnabled}
+          description="Remember the preference only. The camera still starts from its own button and explicit gesture."
+          label="Prefer camera composition"
+          onChange={(cameraEnabled) => onChange({ cameraEnabled })}
+        />
+        <SettingCheckbox
+          checked={data.settings.muted}
+          description="Mute game sound. Voice input and private calibration review stay under your control."
+          label="Mute game"
+          onChange={(muted) => onChange({ muted })}
+        />
+        <SettingCheckbox
+          checked={data.settings.reducedMotion}
+          description="Remove interface transitions and continuous character bobbing or flapping."
+          label="Reduce motion"
+          onChange={(reducedMotion) => onChange({ reducedMotion })}
+        />
+        <SettingCheckbox
+          checked={data.settings.screenShakeEnabled}
+          description="Allow impact shake feedback when an effect supports it."
+          label="Screen shake"
+          onChange={(screenShakeEnabled) => onChange({ screenShakeEnabled })}
+        />
+      </fieldset>
+
+      <section className="settings-group" aria-labelledby="statistics-title">
+        <h3 id="statistics-title">Local run statistics</h3>
+        <dl className="settings-stats">
+          <div>
+            <dt>Best score</dt>
+            <dd>{data.statistics.bestScore}</dd>
+          </div>
+          <div>
+            <dt>Best distance</dt>
+            <dd>{Math.round(data.statistics.bestDistance)}</dd>
+          </div>
+          <div>
+            <dt>Best survival</dt>
+            <dd>{(data.statistics.longestSurvivalMs / 1_000).toFixed(1)}s</dd>
+          </div>
+          <div>
+            <dt>Finished runs</dt>
+            <dd>{data.statistics.completedRuns}</dd>
+          </div>
+        </dl>
+        <p className="settings-help">
+          Only valid runs that reach a local results screen can update these bests.
+        </p>
+      </section>
+
+      <section className="settings-group settings-danger" aria-labelledby="local-data-title">
+        <h3 id="local-data-title">Local data</h3>
+        <p className="settings-help">
+          Data schema {data.schemaVersion} · safety copy {data.settings.copyVersion}
+        </p>
+        {confirmingReset ? (
+          <div className="reset-confirmation" role="alert">
+            <p>This removes all Shouting Chickens settings, calibration, and scores now.</p>
+            <div className="flow-actions flow-actions--inline">
+              <button type="button" className="danger-action" onClick={onReset}>
+                Confirm reset
+              </button>
+              <button
+                type="button"
+                className="secondary-action"
+                onClick={() => setConfirmingReset(false)}
+              >
+                Keep my data
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button
+            type="button"
+            className="secondary-action"
+            onClick={() => setConfirmingReset(true)}
+          >
+            Reset local game data
+          </button>
+        )}
+      </section>
+
+      <button type="button" className="primary-action" onClick={onClose}>
+        {runActive ? "Return to paused run" : "Close settings"}
+      </button>
+    </section>
+  );
+}
+
+interface SettingCheckboxProps {
+  readonly checked: boolean;
+  readonly description: string;
+  readonly label: string;
+  readonly onChange: (checked: boolean) => void;
+}
+
+function SettingCheckbox({ checked, description, label, onChange }: SettingCheckboxProps) {
+  return (
+    <label className="setting-row">
+      <span>
+        {label}
+        <small>{description}</small>
+      </span>
+      <input
+        type="checkbox"
+        checked={checked}
+        aria-label={label}
+        onChange={(event) => onChange(event.target.checked)}
+      />
+    </label>
   );
 }
 
@@ -1258,6 +1976,13 @@ function permissionFailureCopy(status: MediaSessionSnapshot["microphone"]["statu
     return "Microphone audio is paused. Resume it from the visible button, or use fallback controls.";
   }
   return "No usable microphone is available. Check the device and retry, or use fallback controls.";
+}
+
+function initialScreenForLocalData(data: LocalGameData): Screen {
+  return data.settings.copyVersion >= CURRENT_COPY_VERSION &&
+    data.settings.controlPreference === "keyboard-touch"
+    ? "ready"
+    : "permission";
 }
 
 function isSetupScreen(screen: Screen): screen is SetupScreen {

@@ -8,6 +8,7 @@ import {
   type InputProvenance,
   type InputSource,
   type ControlIntent,
+  type PresentationPreferences,
   type RunOptions,
 } from "../core";
 import { FixedStepRunner } from "./FixedStepRunner";
@@ -25,6 +26,7 @@ export type PhaserFrameHost = {
     configuredInput: ControlMode;
     normalizedInput: number;
   };
+  presentationSnapshot(): PresentationPreferences;
 };
 
 export type PhaserGameHandle = {
@@ -104,6 +106,11 @@ export class PhaserGameRuntime implements GameRuntime, PhaserFrameHost {
   private appliedLift = 0;
   private runGeneration = 0;
   private failedRun: FailedRunDiagnostic | null = null;
+  private presentationPreferences: PresentationPreferences = {
+    muted: false,
+    reducedMotion: false,
+    screenShakeEnabled: true,
+  };
 
   constructor(private readonly options: PhaserGameRuntimeOptions) {
     if (
@@ -220,6 +227,11 @@ export class PhaserGameRuntime implements GameRuntime, PhaserFrameHost {
     this.updateContainerState();
   }
 
+  setPresentationPreferences(preferences: PresentationPreferences) {
+    this.presentationPreferences = { ...preferences };
+    this.updateContainerState();
+  }
+
   pause() {
     if (this.stateValue !== "mounted") {
       return;
@@ -281,6 +293,10 @@ export class PhaserGameRuntime implements GameRuntime, PhaserFrameHost {
     this.updateContainerState();
   }
 
+  presentationSnapshot() {
+    return { ...this.presentationPreferences };
+  }
+
   advanceFrame(deltaMs: number) {
     if (this.stateValue !== "mounted") {
       return this.simulation.snapshot();
@@ -312,6 +328,7 @@ export class PhaserGameRuntime implements GameRuntime, PhaserFrameHost {
       this.events.emit({
         type: "ended",
         value: {
+          runId: this.runGeneration,
           seed: this.lastRunOptions.seed,
           gameplayVersion: this.lastRunOptions.gameplayVersion,
           score: after.score,
@@ -416,6 +433,13 @@ export class PhaserGameRuntime implements GameRuntime, PhaserFrameHost {
     this.container.dataset.configuredInput = this.configuredInput;
     this.container.dataset.inputLevel = this.normalizedInput.toFixed(3);
     this.container.dataset.appliedLift = this.appliedLift.toFixed(3);
+    this.container.dataset.muted = this.presentationPreferences.muted ? "true" : "false";
+    this.container.dataset.reducedMotion = this.presentationPreferences.reducedMotion
+      ? "true"
+      : "false";
+    this.container.dataset.screenShakeEnabled = this.presentationPreferences.screenShakeEnabled
+      ? "true"
+      : "false";
     this.container.dataset.controlAccelerationY = (
       DEFAULT_PLAYER_CONTROLLER_TUNING.gravityPerSecond -
       this.appliedLift * DEFAULT_PLAYER_CONTROLLER_TUNING.liftAccelerationPerSecond
