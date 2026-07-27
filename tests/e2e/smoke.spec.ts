@@ -118,8 +118,8 @@ test("ends a run once and completely restarts the seeded authored course", async
   expect(stableResources).toMatchObject({
     bodies: "1",
     timers: "0",
-    pools: "42",
-    collisions: "11",
+    pools: "72",
+    collisions: "10",
     inputListeners: "5",
   });
   expect(Number(stableResources.sceneObjects)).toBeGreaterThan(0);
@@ -129,10 +129,13 @@ test("ends a run once and completely restarts the seeded authored course", async
       timeout: 10_000,
     });
     await expect(surface).toHaveAttribute("data-death-reason", "water");
-    await expect(surface).toHaveAttribute("data-collision-id", "0:lift-terraces:first-pond");
-    await expect(surface).toHaveAttribute("data-current-chunk-id", "lift-terraces");
+    await expect(surface).toHaveAttribute("data-collision-id", "0:stepping-rise:first-pond");
+    await expect(surface).toHaveAttribute("data-current-chunk-id", "stepping-rise");
     await expect(surface).toHaveAttribute("data-failed-run-seed", "authored-launch");
-    await expect(surface).toHaveAttribute("data-failed-run-gameplay-version", "sho-15-authored-v1");
+    await expect(surface).toHaveAttribute(
+      "data-failed-run-gameplay-version",
+      "sho-16-voice-aware-v1",
+    );
 
     const ended = await surface.evaluate((element) => ({
       elapsedMs: Number(element.getAttribute("data-elapsed-ms")),
@@ -158,6 +161,57 @@ test("ends a run once and completely restarts the seeded authored course", async
       inputListeners: await surface.getAttribute("data-input-listeners"),
     }).toEqual(stableResources);
   }
+});
+
+test("mounts readable voice-mechanic warnings and resets deterministic moving content", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/");
+  const surface = await expectMountedWorld(page);
+  await page.getByRole("button", { name: "Pause run" }).click();
+  await expect(surface).toHaveAttribute("data-simulation-phase", "paused");
+
+  const initial = {
+    chunks: await surface.getAttribute("data-active-chunk-ids"),
+    warnings: await surface.getAttribute("data-active-warning-copy"),
+    warningCount: Number(await surface.getAttribute("data-active-warning-count")),
+    movementPhases: await surface.getAttribute("data-moving-hazard-phases"),
+    pools: await surface.getAttribute("data-pooled-objects"),
+    renderedWarnings: Number(await surface.getAttribute("data-rendered-warnings")),
+    renderedQuietZones: Number(await surface.getAttribute("data-rendered-quiet-zones")),
+    renderedCollectibles: Number(await surface.getAttribute("data-rendered-collectibles")),
+    renderedMovingHazards: Number(await surface.getAttribute("data-rendered-moving-hazards")),
+  };
+
+  expect(initial.chunks).toContain("moving-spike-intro");
+  expect(initial.chunks).toContain("quiet-tunnel-intro");
+  expect(initial.chunks).toContain("lift-terraces");
+  expect(initial.chunks).toContain("precision-islands-intro");
+  expect(initial.warnings).toContain("MOVING SPIKE");
+  expect(initial.warnings).toContain("RELEASE");
+  expect(initial.warnings).toContain("HOLD LIFT");
+  expect(initial.warnings).toContain("PULSE");
+  expect(initial.warningCount).toBeGreaterThanOrEqual(5);
+  expect(initial.movementPhases).toMatch(/1:moving-spike-intro:moving-spike@\d+/);
+  expect(initial.pools).toBe("72");
+  expect(initial.renderedWarnings).toBeGreaterThanOrEqual(5);
+  expect(initial.renderedQuietZones).toBeGreaterThanOrEqual(1);
+  expect(initial.renderedCollectibles).toBeGreaterThanOrEqual(1);
+  expect(initial.renderedMovingHazards).toBeGreaterThanOrEqual(1);
+
+  await page.getByRole("button", { name: "Resume run" }).click();
+  await expect(surface).toHaveAttribute("data-simulation-phase", "dead", {
+    timeout: 10_000,
+  });
+  await page.getByRole("button", { name: "Restart run" }).click();
+  await page.getByRole("button", { name: "Pause run" }).click();
+  await expect(surface).toHaveAttribute("data-simulation-phase", "paused");
+
+  expect(await surface.getAttribute("data-active-chunk-ids")).toBe(initial.chunks);
+  expect(await surface.getAttribute("data-active-warning-copy")).toBe(initial.warnings);
+  expect(await surface.getAttribute("data-moving-hazard-phases")).toBe(initial.movementPhases);
+  expect(await surface.getAttribute("data-pooled-objects")).toBe(initial.pools);
 });
 
 test("pauses behind a rotate message in compact landscape", async ({ page }) => {

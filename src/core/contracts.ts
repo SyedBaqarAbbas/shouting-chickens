@@ -84,10 +84,29 @@ export type RuntimeError = {
   cause?: unknown;
 };
 
+export type GameplayInteractionEvent =
+  | {
+      type: "hazard-collision";
+      value: {
+        id: string;
+        kind: "spike" | "moving-spike" | "quiet-zone" | "water" | "fall";
+        tick: number;
+      };
+    }
+  | {
+      type: "collectible-collected";
+      value: {
+        id: string;
+        kind: "feather";
+        tick: number;
+      };
+    };
+
 export type GameEvent =
   | { type: "snapshot"; value: GameSnapshot }
   | { type: "ended"; value: RunSummary }
-  | { type: "fatal-error"; error: RuntimeError };
+  | { type: "fatal-error"; error: RuntimeError }
+  | GameplayInteractionEvent;
 
 export type GameEventListener = (event: GameEvent) => void;
 

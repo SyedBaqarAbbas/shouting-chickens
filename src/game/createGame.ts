@@ -13,11 +13,7 @@ import {
   TouchInputSource,
 } from "./input/BrowserInputSources";
 import { getCappedRenderResolution } from "./renderResolution";
-import {
-  type GeneratedCourseSnapshot,
-  type GeneratedSpikeDefinition,
-  type GeneratedWaterDefinition,
-} from "./GeneratedChunkCourse";
+import { type GeneratedCourseSnapshot } from "./GeneratedChunkCourse";
 import {
   CHICKEN_BODY_HEIGHT,
   CHICKEN_BODY_WIDTH,
@@ -39,6 +35,7 @@ type PlatformView = Readonly<{
 type HazardView = Readonly<{
   spike: Phaser.GameObjects.Triangle;
   water: Phaser.GameObjects.Rectangle;
+  quietZone: Phaser.GameObjects.Rectangle;
 }>;
 
 type CreateGameRuntimeOptions = {
@@ -62,6 +59,7 @@ class ChickenWorldScene extends Phaser.Scene {
   private readonly platformViews: PlatformView[] = [];
   private readonly hazardViews: HazardView[] = [];
   private readonly collectibleViews: Phaser.GameObjects.Arc[] = [];
+  private readonly warningViews: Phaser.GameObjects.Text[] = [];
   private chicken!: Phaser.GameObjects.Container;
   private chickenWing!: Phaser.GameObjects.Ellipse;
   private phaseShade!: Phaser.GameObjects.Rectangle;
@@ -96,11 +94,21 @@ class ChickenWorldScene extends Phaser.Scene {
   }
 
   resourceDiagnostics() {
+    const course = this.requiredCourseSnapshot();
     return {
       sceneObjects: this.children.getChildren().length,
       activeTimers: 0,
       pooledObjects:
-        this.platformViews.length + this.hazardViews.length + this.collectibleViews.length,
+        this.platformViews.length +
+        this.hazardViews.length +
+        this.collectibleViews.length +
+        this.warningViews.length,
+      renderedWarnings: this.warningViews.filter((view) => view.visible).length,
+      renderedQuietZones: this.hazardViews.filter((view) => view.quietZone.visible).length,
+      renderedCollectibles: this.collectibleViews.filter((view) => view.visible).length,
+      renderedMovingHazards: course.spikes.filter(
+        (hazard, index) => hazard.kind === "moving-spike" && this.hazardViews[index]?.spike.visible,
+      ).length,
     };
   }
 
@@ -171,7 +179,18 @@ class ChickenWorldScene extends Phaser.Scene {
         .setDepth(1)
         .setVisible(false);
 
-      this.hazardViews.push({ spike: spikeView, water: waterView });
+      const quietZoneView = this.add
+        .rectangle(0, 0, 1, 1, 0x09111e, 0.72)
+        .setOrigin(0.5, 0)
+        .setStrokeStyle(3, 0xf5d567, 0.9)
+        .setDepth(5)
+        .setVisible(false);
+
+      this.hazardViews.push({
+        spike: spikeView,
+        water: waterView,
+        quietZone: quietZoneView,
+      });
     }
 
     for (let index = 0; index < capacities.collectibles; index += 1) {
@@ -180,6 +199,27 @@ class ChickenWorldScene extends Phaser.Scene {
           .circle(0, 0, 1, 0xf5d567)
           .setStrokeStyle(3, 0xfff3b0, 0.9)
           .setDepth(6)
+          .setVisible(false),
+      );
+    }
+
+    for (let index = 0; index < capacities.warnings; index += 1) {
+      this.warningViews.push(
+        this.add
+          .text(0, 0, "", {
+            align: "center",
+            backgroundColor: "#07111f",
+            color: "#ffffff",
+            fontFamily: "system-ui, sans-serif",
+            fontSize: "11px",
+            fontStyle: "700",
+            letterSpacing: 1,
+            padding: { x: 7, y: 5 },
+            wordWrap: { width: 210, useAdvancedWrap: true },
+          })
+          .setOrigin(0.5)
+          .setDepth(8)
+          .setStroke("#020711", 2)
           .setVisible(false),
       );
     }
@@ -291,7 +331,7 @@ class ChickenWorldScene extends Phaser.Scene {
 
   private render(snapshot: SimulationSnapshot) {
     const hud = this.host.hudSnapshot();
-    this.renderGeneratedWorld(snapshot.distance);
+    this.renderGeneratedWorld(snapshot);
 
     const animation = snapshot.chicken.animation;
     const runBob = animation === "run" ? Math.sin(snapshot.tick * 0.55) * 1.8 : 0;
@@ -339,8 +379,10 @@ class ChickenWorldScene extends Phaser.Scene {
     this.phaseLabel.setText(phaseCopy).setVisible(Boolean(phaseCopy));
   }
 
-  private renderGeneratedWorld(distance: number) {
+  private renderGeneratedWorld(snapshot: SimulationSnapshot) {
     const course = this.requiredCourseSnapshot();
+    const distance = snapshot.distance;
+    const collectedIds = new Set(snapshot.collectedCollectibleIds);
 
     for (let index = 0; index < this.platformViews.length; index += 1) {
       const view = this.platformViews[index];
@@ -363,13 +405,7 @@ class ChickenWorldScene extends Phaser.Scene {
       view.grass.setPosition(x, platform.top).setDisplaySize(platform.width, 20).setVisible(true);
     }
 
-    const hazards: readonly (
-      | (GeneratedSpikeDefinition & { kind: "spike" })
-      | (GeneratedWaterDefinition & { kind: "water" })
-    )[] = [
-      ...course.spikes.map((hazard) => ({ ...hazard, kind: "spike" as const })),
-      ...course.water.map((hazard) => ({ ...hazard, kind: "water" as const })),
-    ];
+    const hazards = [...course.spikes, ...course.water, ...course.quietZones];
 
     for (let index = 0; index < this.hazardViews.length; index += 1) {
       const view = this.hazardViews[index];
@@ -381,20 +417,30 @@ class ChickenWorldScene extends Phaser.Scene {
       if (!hazard) {
         view.spike.setVisible(false);
         view.water.setVisible(false);
+        view.quietZone.setVisible(false);
         continue;
       }
 
-      if (hazard.kind === "spike") {
+      if (hazard.kind === "spike" || hazard.kind === "moving-spike") {
         view.water.setVisible(false);
+        view.quietZone.setVisible(false);
         view.spike
           .setPosition(hazard.x - distance + hazard.width / 2, hazard.baseTop)
           .setDisplaySize(hazard.width, hazard.height)
           .setVisible(true);
-      } else {
+      } else if (hazard.kind === "water") {
         view.spike.setVisible(false);
+        view.quietZone.setVisible(false);
         view.water
           .setPosition(hazard.x - distance + hazard.width / 2, hazard.top)
           .setDisplaySize(hazard.width, LOGICAL_GAME_HEIGHT - hazard.top)
+          .setVisible(true);
+      } else if (hazard.kind === "quiet-zone") {
+        view.spike.setVisible(false);
+        view.water.setVisible(false);
+        view.quietZone
+          .setPosition(hazard.x - distance + hazard.width / 2, hazard.top)
+          .setDisplaySize(hazard.width, hazard.bottom - hazard.top)
           .setVisible(true);
       }
     }
@@ -406,7 +452,7 @@ class ChickenWorldScene extends Phaser.Scene {
       if (!view) {
         continue;
       }
-      if (!collectible) {
+      if (!collectible || collectedIds.has(collectible.id)) {
         view.setVisible(false);
         continue;
       }
@@ -414,6 +460,24 @@ class ChickenWorldScene extends Phaser.Scene {
       view
         .setPosition(collectible.x - distance, collectible.y)
         .setDisplaySize(collectible.radius * 2, collectible.radius * 2)
+        .setVisible(true);
+    }
+
+    for (let index = 0; index < this.warningViews.length; index += 1) {
+      const view = this.warningViews[index];
+      const warning = course.warnings[index];
+
+      if (!view) {
+        continue;
+      }
+      if (!warning) {
+        view.setVisible(false);
+        continue;
+      }
+
+      view
+        .setPosition(warning.x - distance, warning.y)
+        .setText(`${warning.symbol} ${warning.text}`)
         .setVisible(true);
     }
   }
