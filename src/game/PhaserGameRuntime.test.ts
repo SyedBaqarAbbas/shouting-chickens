@@ -87,12 +87,13 @@ describe("PhaserGameRuntime", () => {
         state: "mounted",
         activeBodies: 1,
         activeTimers: 0,
-        collisionZones: 5,
-        pooledObjects: 9,
+        collisionZones: 9,
+        pooledObjects: 42,
         sceneObjects: 0,
         inputListeners: 0,
         eventListeners: 1,
         hasPhaserGame: true,
+        failedRun: null,
       });
 
       runtime.destroy();
@@ -108,6 +109,7 @@ describe("PhaserGameRuntime", () => {
         inputListeners: 0,
         eventListeners: 0,
         hasPhaserGame: false,
+        failedRun: null,
       });
       expect(input.startCount).toBe(1);
       expect(input.resetCount).toBe(2);
@@ -144,6 +146,43 @@ describe("PhaserGameRuntime", () => {
     runtime.resume();
     runtime.advanceFrame(FIXED_STEP_MS);
     expect(runtime.snapshot().tick).toBe(2);
+    runtime.destroy();
+  });
+
+  it("uses run seed and gameplay version to drive the live generated course", async () => {
+    const runtime = new PhaserGameRuntime({
+      phaserFactory: () => ({
+        game: { destroy: vi.fn() },
+        ready: Promise.resolve(),
+      }),
+      inputSourceFactory: () => new LifecycleInput(),
+      renderResolution: 1,
+      clock: new ManualClock(),
+    });
+    await runtime.mount(document.createElement("div"));
+
+    runtime.startRun({
+      ...RUN_OPTIONS,
+      seed: "course-a",
+      gameplayVersion: "generated-v1",
+    });
+    const first = runtime.courseSnapshot()!.chunks.map((chunk) => chunk.templateId);
+
+    runtime.startRun({
+      ...RUN_OPTIONS,
+      seed: "course-b",
+      gameplayVersion: "generated-v1",
+    });
+    const second = runtime.courseSnapshot()!.chunks.map((chunk) => chunk.templateId);
+    expect(second).not.toEqual(first);
+
+    runtime.restart();
+    expect(runtime.courseSnapshot()!.chunks.map((chunk) => chunk.templateId)).toEqual(second);
+    expect(runtime.snapshot()).toMatchObject({
+      currentChunkIndex: 0,
+      currentChunkId: second[0],
+      phase: "running",
+    });
     runtime.destroy();
   });
 
@@ -316,6 +355,16 @@ describe("PhaserGameRuntime", () => {
       chicken: { animation: "death" },
     });
     expect(events.filter((event) => event.type === "ended")).toHaveLength(1);
+    expect(runtime.diagnostics().failedRun).toEqual({
+      seed: RUN_OPTIONS.seed,
+      gameplayVersion: RUN_OPTIONS.gameplayVersion,
+    });
+    expect(Object.keys(runtime.diagnostics().failedRun!).sort()).toEqual([
+      "gameplayVersion",
+      "seed",
+    ]);
+    expect(container.dataset.failedRunSeed).toBe(RUN_OPTIONS.seed);
+    expect(container.dataset.failedRunGameplayVersion).toBe(RUN_OPTIONS.gameplayVersion);
     const ended = events.find((event) => event.type === "ended");
     expect(ended).toEqual({
       type: "ended",
@@ -330,6 +379,9 @@ describe("PhaserGameRuntime", () => {
     });
 
     runtime.restart();
+    expect(runtime.diagnostics().failedRun).toBeNull();
+    expect(container.dataset.failedRunSeed).toBeUndefined();
+    expect(container.dataset.failedRunGameplayVersion).toBeUndefined();
     expect(container.dataset.runGeneration).toBe("2");
     expect(runtime.snapshot()).toMatchObject({
       phase: "running",
@@ -418,7 +470,7 @@ describe("PhaserGameRuntime", () => {
         chicken: {
           velocityY: 0,
           grounded: true,
-          supportingPlatformId: "safe-start",
+          supportingPlatformId: expect.stringMatching(/^0:/),
         },
       });
 
@@ -436,7 +488,7 @@ describe("PhaserGameRuntime", () => {
       expect(events.filter((event) => event.type === "ended")).toHaveLength(run + 1);
       expect(container.dataset.score).toBe(String(ended.score));
       expect(container.dataset.elapsedMs).toBe(String(ended.elapsedMs));
-      expect(container.dataset.pooledObjects).toBe("9");
+      expect(container.dataset.pooledObjects).toBe("42");
 
       for (let frozenFrame = 0; frozenFrame < 10; frozenFrame += 1) {
         runtime.advanceFrame(FIXED_STEP_MS);
@@ -466,6 +518,7 @@ describe("PhaserGameRuntime", () => {
         inputSourceFactory: () => scripted,
         renderResolution: 1,
         clock,
+        generatedCourse: null,
       });
       const events: GameEvent[] = [];
       runtime.subscribe((event) => events.push(event));

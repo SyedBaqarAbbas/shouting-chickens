@@ -12,12 +12,14 @@ import {
 } from "../core";
 import { FixedStepRunner } from "./FixedStepRunner";
 import { DEFAULT_PLAYER_CONTROLLER_TUNING } from "./FixedStepPlayerController";
+import { GeneratedChunkCourse, type GeneratedCourseSnapshot } from "./GeneratedChunkCourse";
 import { ChickenSimulation, FIXED_STEP_MS, type SimulationSnapshot } from "./simulation";
 
 export type PhaserFrameHost = {
   onSceneReady(): void;
   advanceFrame(deltaMs: number): SimulationSnapshot;
   snapshot(): SimulationSnapshot;
+  courseSnapshot(): GeneratedCourseSnapshot | null;
   hudSnapshot(): {
     activeInput: InputProvenance;
     configuredInput: ControlMode;
@@ -57,13 +59,20 @@ export type RuntimeDiagnostics = {
   inputListeners: number;
   eventListeners: number;
   hasPhaserGame: boolean;
+  failedRun: FailedRunDiagnostic | null;
 };
+
+export type FailedRunDiagnostic = Readonly<{
+  seed: string;
+  gameplayVersion: string;
+}>;
 
 type PhaserGameRuntimeOptions = {
   phaserFactory: PhaserMountFactory;
   inputSourceFactory: InputSourceFactory;
   renderResolution: number;
   clock?: Clock;
+  generatedCourse?: GeneratedChunkCourse | null;
 };
 
 type SimulationTimedInputSource = InputSource & {
@@ -76,8 +85,9 @@ function supportsSimulationTime(input: InputSource): input is SimulationTimedInp
 }
 
 export class PhaserGameRuntime implements GameRuntime, PhaserFrameHost {
-  private readonly simulation = new ChickenSimulation();
-  private readonly runner = new FixedStepRunner(this.simulation);
+  private readonly generatedCourse: GeneratedChunkCourse | null;
+  private readonly simulation: ChickenSimulation;
+  private readonly runner: FixedStepRunner;
   private readonly events: GameEventHub;
   private readonly resolveDestroyed: () => void;
   private readonly destroyedPromise: Promise<void>;
@@ -93,6 +103,7 @@ export class PhaserGameRuntime implements GameRuntime, PhaserFrameHost {
   private normalizedInput = 0;
   private appliedLift = 0;
   private runGeneration = 0;
+  private failedRun: FailedRunDiagnostic | null = null;
 
   constructor(private readonly options: PhaserGameRuntimeOptions) {
     if (
@@ -103,6 +114,12 @@ export class PhaserGameRuntime implements GameRuntime, PhaserFrameHost {
       throw new RangeError("Render resolution must be between 1 and 2");
     }
 
+    this.generatedCourse =
+      options.generatedCourse === undefined ? new GeneratedChunkCourse() : options.generatedCourse;
+    this.simulation = new ChickenSimulation(
+      this.generatedCourse ? { generatedCourse: this.generatedCourse } : {},
+    );
+    this.runner = new FixedStepRunner(this.simulation);
     this.events = new GameEventHub(options.clock ?? new SystemClock());
 
     let resolveDestroyed: () => void = () => {};
@@ -174,8 +191,10 @@ export class PhaserGameRuntime implements GameRuntime, PhaserFrameHost {
 
   startRun(options: RunOptions) {
     this.assertMounted();
+    this.generatedCourse?.reset(options.seed, options.gameplayVersion);
     this.lastRunOptions = { ...options };
     this.endedEventSent = false;
+    this.failedRun = null;
     this.runGeneration += 1;
     this.runner.reset();
     this.events.resetRunState();
@@ -245,6 +264,7 @@ export class PhaserGameRuntime implements GameRuntime, PhaserFrameHost {
     this.runner.reset();
     this.simulation.destroy();
     this.events.clear();
+    this.failedRun = null;
     this.updateContainerState();
     this.container = null;
   }
@@ -285,6 +305,10 @@ export class PhaserGameRuntime implements GameRuntime, PhaserFrameHost {
 
     if (after.phase === "dead" && !this.endedEventSent && this.lastRunOptions) {
       this.endedEventSent = true;
+      this.failedRun = Object.freeze({
+        seed: this.lastRunOptions.seed,
+        gameplayVersion: this.lastRunOptions.gameplayVersion,
+      });
       this.events.emit({
         type: "ended",
         value: {
@@ -309,6 +333,10 @@ export class PhaserGameRuntime implements GameRuntime, PhaserFrameHost {
     return this.simulation.snapshot();
   }
 
+  courseSnapshot() {
+    return this.generatedCourse?.snapshot() ?? null;
+  }
+
   hudSnapshot() {
     return {
       activeInput: this.activeInput,
@@ -331,6 +359,7 @@ export class PhaserGameRuntime implements GameRuntime, PhaserFrameHost {
       inputListeners: this.input?.diagnostics?.().activeListeners ?? 0,
       eventListeners: this.events.listenerCount(),
       hasPhaserGame: this.game !== null,
+      failedRun: this.failedRun ? { ...this.failedRun } : null,
     };
   }
 
@@ -400,8 +429,18 @@ export class PhaserGameRuntime implements GameRuntime, PhaserFrameHost {
     this.container.dataset.elapsedMs = String(snapshot.elapsedMs);
     this.container.dataset.courseDistance = String(snapshot.courseDistance);
     this.container.dataset.loopsCompleted = String(snapshot.loopsCompleted);
+    this.container.dataset.currentChunkIndex = String(snapshot.currentChunkIndex);
+    this.container.dataset.currentChunkId = snapshot.currentChunkId ?? "";
     this.container.dataset.deathReason = snapshot.deathReason ?? "";
     this.container.dataset.collisionId = snapshot.collisionId ?? "";
+
+    if (diagnostics.failedRun) {
+      this.container.dataset.failedRunSeed = diagnostics.failedRun.seed;
+      this.container.dataset.failedRunGameplayVersion = diagnostics.failedRun.gameplayVersion;
+    } else {
+      delete this.container.dataset.failedRunSeed;
+      delete this.container.dataset.failedRunGameplayVersion;
+    }
   }
 }
 

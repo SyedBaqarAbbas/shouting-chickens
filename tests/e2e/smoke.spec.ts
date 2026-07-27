@@ -102,7 +102,7 @@ test("does not accumulate real Phaser canvases across repeated boots", async ({ 
   }
 });
 
-test("ends a run once and completely restarts the fixed course", async ({ page }) => {
+test("ends a run once and completely restarts the seeded authored course", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
   const surface = await expectMountedWorld(page);
@@ -118,8 +118,8 @@ test("ends a run once and completely restarts the fixed course", async ({ page }
   expect(stableResources).toMatchObject({
     bodies: "1",
     timers: "0",
-    pools: "14",
-    collisions: "5",
+    pools: "42",
+    collisions: "11",
     inputListeners: "5",
   });
   expect(Number(stableResources.sceneObjects)).toBeGreaterThan(0);
@@ -129,7 +129,10 @@ test("ends a run once and completely restarts the fixed course", async ({ page }
       timeout: 10_000,
     });
     await expect(surface).toHaveAttribute("data-death-reason", "water");
-    await expect(surface).toHaveAttribute("data-collision-id", "small-gap-water");
+    await expect(surface).toHaveAttribute("data-collision-id", "0:lift-terraces:first-pond");
+    await expect(surface).toHaveAttribute("data-current-chunk-id", "lift-terraces");
+    await expect(surface).toHaveAttribute("data-failed-run-seed", "authored-launch");
+    await expect(surface).toHaveAttribute("data-failed-run-gameplay-version", "sho-15-authored-v1");
 
     const ended = await surface.evaluate((element) => ({
       elapsedMs: Number(element.getAttribute("data-elapsed-ms")),
@@ -144,6 +147,8 @@ test("ends a run once and completely restarts the fixed course", async ({ page }
     await expect(surface).toHaveAttribute("data-death-reason", "");
     await expect(surface).toHaveAttribute("data-collision-id", "");
     await expect(surface).toHaveAttribute("data-loops-completed", "0");
+    await expect(surface).not.toHaveAttribute("data-failed-run-seed");
+    await expect(surface).not.toHaveAttribute("data-failed-run-gameplay-version");
     expect({
       bodies: await surface.getAttribute("data-active-bodies"),
       timers: await surface.getAttribute("data-active-timers"),

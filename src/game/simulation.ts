@@ -14,6 +14,7 @@ import {
   FixedStepPlayerController,
   type PlayerControllerTuning,
 } from "./FixedStepPlayerController";
+import { GeneratedChunkCourse } from "./GeneratedChunkCourse";
 
 export const LOGICAL_GAME_WIDTH = 432;
 export const LOGICAL_GAME_HEIGHT = 768;
@@ -43,6 +44,8 @@ export type SimulationSnapshot = {
   distance: number;
   courseDistance: number;
   loopsCompleted: number;
+  currentChunkIndex: number;
+  currentChunkId: string | null;
   chicken: {
     x: number;
     y: number;
@@ -74,6 +77,7 @@ export type SimulationOptions = {
   courseLength?: number | null;
   worldSpeed?: number;
   playerTuning?: PlayerControllerTuning;
+  generatedCourse?: GeneratedChunkCourse | null;
 };
 
 type PlatformInstance = PlatformDefinition & {
@@ -87,6 +91,12 @@ type SpikeInstance = SpikeHazardDefinition & {
 type WaterInstance = WaterZoneDefinition & {
   worldX: number;
 };
+
+type WorldGeometry = Readonly<{
+  platforms: readonly PlatformInstance[];
+  spikes: readonly SpikeInstance[];
+  water: readonly WaterInstance[];
+}>;
 
 function copySnapshot(snapshot: SimulationSnapshot): SimulationSnapshot {
   return {
@@ -232,14 +242,26 @@ export class ChickenSimulation {
   readonly water: readonly WaterZoneDefinition[] | null;
   readonly courseLength: number | null;
   readonly worldSpeed: number;
+  readonly generatedCourse: GeneratedChunkCourse | null;
 
   private destroyed = false;
   private readonly playerController: FixedStepPlayerController;
   private snapshotValue: SimulationSnapshot;
 
   constructor(options: SimulationOptions = {}) {
-    const usesAuthoredCourse = options.platforms === undefined;
-    const platforms = options.platforms ?? LOOPING_COURSE_PLATFORMS;
+    const generatedCourse = options.generatedCourse ?? null;
+    if (
+      generatedCourse &&
+      (options.platforms !== undefined ||
+        options.spikes !== undefined ||
+        options.water !== undefined ||
+        options.courseLength !== undefined)
+    ) {
+      throw new TypeError("Generated courses cannot be combined with fixed course definitions");
+    }
+
+    const usesAuthoredCourse = options.platforms === undefined && generatedCourse === null;
+    const platforms = generatedCourse ? [] : (options.platforms ?? LOOPING_COURSE_PLATFORMS);
     const spikes = options.spikes ?? (usesAuthoredCourse ? LOOPING_COURSE_SPIKES : []);
     const water =
       options.water === undefined
@@ -247,8 +269,9 @@ export class ChickenSimulation {
           ? LOOPING_COURSE_WATER
           : null
         : options.water;
-    const courseLength =
-      options.courseLength === undefined
+    const courseLength = generatedCourse
+      ? null
+      : options.courseLength === undefined
         ? usesAuthoredCourse
           ? COURSE_LENGTH
           : null
@@ -274,6 +297,7 @@ export class ChickenSimulation {
     this.water = water?.map((zone) => Object.freeze({ ...zone })) ?? water;
     this.courseLength = courseLength;
     this.worldSpeed = worldSpeed;
+    this.generatedCourse = generatedCourse;
     this.playerController = new FixedStepPlayerController(options.playerTuning);
     this.snapshotValue = this.createInitialSnapshot();
   }
@@ -338,19 +362,20 @@ export class ChickenSimulation {
     state.elapsedMs = state.tick * FIXED_STEP_MS;
     state.score = Math.floor(state.elapsedMs / SURVIVAL_SCORE_INTERVAL_MS);
     state.distance += this.worldSpeed * STEP_SECONDS;
-    state.courseDistance =
-      this.courseLength === null
+    const chickenWorldX = state.distance + CHICKEN_SCREEN_X;
+    const geometry = this.worldGeometry(chickenWorldX);
+    const nearbyPlatforms = geometry.platforms;
+    const currentChunk = this.generatedCourse?.chunkAt(chickenWorldX);
+
+    state.courseDistance = currentChunk
+      ? state.distance - currentChunk.originX
+      : this.courseLength === null
         ? state.distance
         : wrapCourseCoordinate(state.distance, this.courseLength);
     state.loopsCompleted =
       this.courseLength === null ? 0 : Math.floor(state.distance / this.courseLength);
-
-    const chickenWorldX = state.distance + CHICKEN_SCREEN_X;
-    const nearbyPlatforms = repeatedInstances(
-      this.platforms,
-      chickenWorldX,
-      this.courseLength,
-    ) as readonly PlatformInstance[];
+    state.currentChunkIndex = currentChunk?.chunkIndex ?? state.loopsCompleted;
+    state.currentChunkId = currentChunk?.template.id ?? null;
 
     if (chicken.grounded) {
       const support = nearbyPlatforms.find((platform) =>
@@ -406,9 +431,9 @@ export class ChickenSimulation {
       }
     }
 
-    const spike = (
-      repeatedInstances(this.spikes, chickenWorldX, this.courseLength) as readonly SpikeInstance[]
-    ).find((candidate) => intersectsSpike(candidate, previousWorldX, chickenWorldX, chicken.y));
+    const spike = geometry.spikes.find((candidate) =>
+      intersectsSpike(candidate, previousWorldX, chickenWorldX, chicken.y),
+    );
 
     if (spike) {
       return this.endRun("hazard", spike.id);
@@ -416,17 +441,11 @@ export class ChickenSimulation {
 
     const chickenBottom = chicken.y + CHICKEN_BODY_HEIGHT / 2;
     const water =
-      this.water === null
+      this.generatedCourse === null && this.water === null
         ? chickenBottom >= WATER_DEATH_Y
           ? { id: "water" }
           : undefined
-        : (
-            repeatedInstances(
-              this.water,
-              chickenWorldX,
-              this.courseLength,
-            ) as readonly WaterInstance[]
-          ).find((zone) => isOverWater(zone, chickenWorldX, chickenBottom));
+        : geometry.water.find((zone) => isOverWater(zone, chickenWorldX, chickenBottom));
 
     if (water) {
       return this.endRun("water", water.id);
@@ -446,13 +465,23 @@ export class ChickenSimulation {
 
   diagnostics(): SimulationDiagnostics {
     const active = !this.destroyed;
+    const geometry = active
+      ? this.worldGeometry(this.snapshotValue.distance + CHICKEN_SCREEN_X)
+      : null;
+    const generatedPool = this.generatedCourse?.poolCapacities();
+    const waterCollisionZones = this.generatedCourse
+      ? (geometry?.water.length ?? 0)
+      : this.water === null
+        ? 1
+        : (geometry?.water.length ?? 0);
 
     return {
       activeBodies: active ? 1 : 0,
       activeTimers: 0,
-      collisionZones: active ? this.spikes.length + (this.water?.length ?? 1) + 1 : 0,
+      collisionZones: active ? (geometry?.spikes.length ?? 0) + waterCollisionZones + 1 : 0,
       pooledObjects: active
-        ? this.platforms.length + this.spikes.length + (this.water?.length ?? 1)
+        ? (generatedPool?.total ??
+          this.platforms.length + this.spikes.length + (this.water?.length ?? 1))
         : 0,
       destroyed: this.destroyed,
     };
@@ -464,17 +493,12 @@ export class ChickenSimulation {
 
   private createInitialSnapshot(): SimulationSnapshot {
     const chickenWorldX = CHICKEN_SCREEN_X;
-    const startingPlatform = (
-      repeatedInstances(
-        this.platforms,
-        chickenWorldX,
-        this.courseLength,
-      ) as readonly PlatformInstance[]
-    ).find((platform) => {
+    const startingPlatform = this.worldGeometry(chickenWorldX).platforms.find((platform) => {
       const chickenLeft = chickenWorldX - CHICKEN_BODY_WIDTH / 2;
       const chickenRight = chickenWorldX + CHICKEN_BODY_WIDTH / 2;
       return chickenRight > platform.worldX && chickenLeft < platform.worldX + platform.width;
     });
+    const currentChunk = this.generatedCourse?.chunkAt(chickenWorldX);
 
     if (!startingPlatform) {
       throw new Error("The simulation needs a platform beneath its starting position");
@@ -488,6 +512,8 @@ export class ChickenSimulation {
       distance: 0,
       courseDistance: 0,
       loopsCompleted: 0,
+      currentChunkIndex: currentChunk?.chunkIndex ?? 0,
+      currentChunkId: currentChunk?.template.id ?? null,
       chicken: {
         x: CHICKEN_SCREEN_X,
         y: startingPlatform.top - CHICKEN_BODY_HEIGHT / 2,
@@ -499,6 +525,47 @@ export class ChickenSimulation {
       deathReason: null,
       collisionId: null,
       landingCount: 0,
+    };
+  }
+
+  private worldGeometry(aroundWorldX: number): WorldGeometry {
+    if (this.generatedCourse) {
+      const generated = this.generatedCourse.updateForFocus(aroundWorldX);
+      return {
+        platforms: generated.platforms.map((platform) => ({
+          ...platform,
+          worldX: platform.x,
+        })),
+        spikes: generated.spikes.map((spike) => ({
+          ...spike,
+          worldX: spike.x,
+        })),
+        water: generated.water.map((zone) => ({
+          ...zone,
+          worldX: zone.x,
+        })),
+      };
+    }
+
+    return {
+      platforms: repeatedInstances(
+        this.platforms,
+        aroundWorldX,
+        this.courseLength,
+      ) as readonly PlatformInstance[],
+      spikes: repeatedInstances(
+        this.spikes,
+        aroundWorldX,
+        this.courseLength,
+      ) as readonly SpikeInstance[],
+      water:
+        this.water === null
+          ? []
+          : (repeatedInstances(
+              this.water,
+              aroundWorldX,
+              this.courseLength,
+            ) as readonly WaterInstance[]),
     };
   }
 

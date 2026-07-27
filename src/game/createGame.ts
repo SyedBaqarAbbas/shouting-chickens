@@ -14,12 +14,10 @@ import {
 } from "./input/BrowserInputSources";
 import { getCappedRenderResolution } from "./renderResolution";
 import {
-  COURSE_LENGTH,
-  LOOPING_COURSE_PLATFORMS,
-  LOOPING_COURSE_SPIKES,
-  LOOPING_COURSE_WATER,
-  projectLoopingWorldX,
-} from "./course";
+  type GeneratedCourseSnapshot,
+  type GeneratedSpikeDefinition,
+  type GeneratedWaterDefinition,
+} from "./GeneratedChunkCourse";
 import {
   CHICKEN_BODY_HEIGHT,
   CHICKEN_BODY_WIDTH,
@@ -32,6 +30,16 @@ import {
 const BOOT_SCENE_KEY = "boot";
 const WORLD_SCENE_KEY = "chicken-world";
 const PLATFORM_HEIGHT = 42;
+
+type PlatformView = Readonly<{
+  trunk: Phaser.GameObjects.Rectangle;
+  grass: Phaser.GameObjects.Rectangle;
+}>;
+
+type HazardView = Readonly<{
+  spike: Phaser.GameObjects.Triangle;
+  water: Phaser.GameObjects.Rectangle;
+}>;
 
 type CreateGameRuntimeOptions = {
   clock?: Clock;
@@ -51,9 +59,9 @@ class BootScene extends Phaser.Scene {
 }
 
 class ChickenWorldScene extends Phaser.Scene {
-  private readonly platformViews: Phaser.GameObjects.Rectangle[] = [];
-  private readonly spikeViews: Phaser.GameObjects.Triangle[] = [];
-  private readonly waterViews: Phaser.GameObjects.Rectangle[] = [];
+  private readonly platformViews: PlatformView[] = [];
+  private readonly hazardViews: HazardView[] = [];
+  private readonly collectibleViews: Phaser.GameObjects.Arc[] = [];
   private chicken!: Phaser.GameObjects.Container;
   private chickenWing!: Phaser.GameObjects.Ellipse;
   private phaseShade!: Phaser.GameObjects.Rectangle;
@@ -75,9 +83,7 @@ class ChickenWorldScene extends Phaser.Scene {
   create() {
     this.configureLogicalCamera();
     this.createBackdrop();
-    this.createWater();
-    this.createPlatforms();
-    this.createSpikes();
+    this.createWorldPools();
     this.createChicken();
     this.createStatusLayer();
     this.render(this.host.snapshot());
@@ -93,7 +99,8 @@ class ChickenWorldScene extends Phaser.Scene {
     return {
       sceneObjects: this.children.getChildren().length,
       activeTimers: 0,
-      pooledObjects: this.platformViews.length + this.spikeViews.length + this.waterViews.length,
+      pooledObjects:
+        this.platformViews.length + this.hazardViews.length + this.collectibleViews.length,
     };
   }
 
@@ -130,70 +137,51 @@ class ChickenWorldScene extends Phaser.Scene {
       .setAlpha(0.68);
   }
 
-  private createWater() {
-    for (const zone of LOOPING_COURSE_WATER) {
-      const water = this.add
-        .rectangle(
-          zone.x + zone.width / 2,
-          zone.top,
-          zone.width,
-          LOGICAL_GAME_HEIGHT - zone.top,
-          0x0756b8,
-          0.96,
-        )
-        .setOrigin(0.5, 0)
-        .setStrokeStyle(8, 0x91c9ff, 0.92)
-        .setDepth(1);
+  private createWorldPools() {
+    const capacities = this.requiredCourseSnapshot().poolCapacities;
 
-      water.setData("worldX", zone.x + zone.width / 2);
-      this.waterViews.push(water);
-    }
-  }
-
-  private createPlatforms() {
-    for (const platform of LOOPING_COURSE_PLATFORMS) {
+    for (let index = 0; index < capacities.platforms; index += 1) {
       const trunk = this.add
-        .rectangle(
-          platform.x + platform.width / 2,
-          platform.top + 10,
-          platform.width,
-          PLATFORM_HEIGHT,
-          0xa96527,
-        )
+        .rectangle(0, 0, 1, 1, 0xa96527)
         .setOrigin(0.5, 0)
-        .setDepth(3);
+        .setDepth(3)
+        .setVisible(false);
 
       const grass = this.add
-        .rectangle(platform.x + platform.width / 2, platform.top, platform.width, 20, 0x2b9b42)
+        .rectangle(0, 0, 1, 1, 0x2b9b42)
         .setOrigin(0.5, 0.5)
-        .setDepth(4);
+        .setDepth(4)
+        .setVisible(false);
 
-      trunk.setData("worldX", platform.x + platform.width / 2);
-      grass.setData("worldX", platform.x + platform.width / 2);
-      this.platformViews.push(trunk, grass);
+      this.platformViews.push({ trunk, grass });
     }
-  }
 
-  private createSpikes() {
-    for (const spike of LOOPING_COURSE_SPIKES) {
+    for (let index = 0; index < capacities.hazards; index += 1) {
       const spikeView = this.add
-        .triangle(
-          spike.x + spike.width / 2,
-          spike.baseTop,
-          0,
-          spike.height,
-          spike.width / 2,
-          0,
-          spike.width,
-          spike.height,
-          0xf1f5f9,
-        )
+        .triangle(0, 0, 0, 1, 0.5, 0, 1, 1, 0xf1f5f9)
         .setOrigin(0.5, 1)
         .setStrokeStyle(3, 0xbdc8d4)
-        .setDepth(6);
+        .setDepth(6)
+        .setVisible(false);
 
-      spikeView.setData("worldX", spike.x + spike.width / 2);
-      this.spikeViews.push(spikeView);
+      const waterView = this.add
+        .rectangle(0, 0, 1, 1, 0x0756b8, 0.96)
+        .setOrigin(0.5, 0)
+        .setStrokeStyle(8, 0x91c9ff, 0.92)
+        .setDepth(1)
+        .setVisible(false);
+
+      this.hazardViews.push({ spike: spikeView, water: waterView });
+    }
+
+    for (let index = 0; index < capacities.collectibles; index += 1) {
+      this.collectibleViews.push(
+        this.add
+          .circle(0, 0, 1, 0xf5d567)
+          .setStrokeStyle(3, 0xfff3b0, 0.9)
+          .setDepth(6)
+          .setVisible(false),
+      );
     }
   }
 
@@ -303,14 +291,7 @@ class ChickenWorldScene extends Phaser.Scene {
 
   private render(snapshot: SimulationSnapshot) {
     const hud = this.host.hudSnapshot();
-
-    for (const view of [...this.platformViews, ...this.spikeViews, ...this.waterViews]) {
-      view.x = projectLoopingWorldX(
-        Number(view.getData("worldX")),
-        snapshot.distance,
-        COURSE_LENGTH,
-      );
-    }
+    this.renderGeneratedWorld(snapshot.distance);
 
     const animation = snapshot.chicken.animation;
     const runBob = animation === "run" ? Math.sin(snapshot.tick * 0.55) * 1.8 : 0;
@@ -321,9 +302,11 @@ class ChickenWorldScene extends Phaser.Scene {
       `Survived ${(snapshot.elapsedMs / 1_000).toFixed(1)}s · ${snapshot.score}`,
     );
     this.courseLabel.setText(
-      `Loop ${snapshot.loopsCompleted + 1} · ${Math.floor(
-        (snapshot.courseDistance / COURSE_LENGTH) * 100,
-      )}%`,
+      snapshot.currentChunkId
+        ? `CHUNK ${snapshot.currentChunkIndex + 1} · ${snapshot.currentChunkId
+            .replaceAll("-", " ")
+            .toUpperCase()}`
+        : `Loop ${snapshot.loopsCompleted + 1}`,
     );
     this.inputMeterFill.displayWidth = 198 * hud.normalizedInput;
     this.inputLevelLabel.setText(`INPUT ${Math.round(hud.normalizedInput * 100)}%`);
@@ -354,6 +337,93 @@ class ChickenWorldScene extends Phaser.Scene {
 
     this.phaseShade.setVisible(Boolean(phaseCopy));
     this.phaseLabel.setText(phaseCopy).setVisible(Boolean(phaseCopy));
+  }
+
+  private renderGeneratedWorld(distance: number) {
+    const course = this.requiredCourseSnapshot();
+
+    for (let index = 0; index < this.platformViews.length; index += 1) {
+      const view = this.platformViews[index];
+      const platform = course.platforms[index];
+
+      if (!view) {
+        continue;
+      }
+      if (!platform) {
+        view.trunk.setVisible(false);
+        view.grass.setVisible(false);
+        continue;
+      }
+
+      const x = platform.x - distance + platform.width / 2;
+      view.trunk
+        .setPosition(x, platform.top + 10)
+        .setDisplaySize(platform.width, PLATFORM_HEIGHT)
+        .setVisible(true);
+      view.grass.setPosition(x, platform.top).setDisplaySize(platform.width, 20).setVisible(true);
+    }
+
+    const hazards: readonly (
+      | (GeneratedSpikeDefinition & { kind: "spike" })
+      | (GeneratedWaterDefinition & { kind: "water" })
+    )[] = [
+      ...course.spikes.map((hazard) => ({ ...hazard, kind: "spike" as const })),
+      ...course.water.map((hazard) => ({ ...hazard, kind: "water" as const })),
+    ];
+
+    for (let index = 0; index < this.hazardViews.length; index += 1) {
+      const view = this.hazardViews[index];
+      const hazard = hazards[index];
+
+      if (!view) {
+        continue;
+      }
+      if (!hazard) {
+        view.spike.setVisible(false);
+        view.water.setVisible(false);
+        continue;
+      }
+
+      if (hazard.kind === "spike") {
+        view.water.setVisible(false);
+        view.spike
+          .setPosition(hazard.x - distance + hazard.width / 2, hazard.baseTop)
+          .setDisplaySize(hazard.width, hazard.height)
+          .setVisible(true);
+      } else {
+        view.spike.setVisible(false);
+        view.water
+          .setPosition(hazard.x - distance + hazard.width / 2, hazard.top)
+          .setDisplaySize(hazard.width, LOGICAL_GAME_HEIGHT - hazard.top)
+          .setVisible(true);
+      }
+    }
+
+    for (let index = 0; index < this.collectibleViews.length; index += 1) {
+      const view = this.collectibleViews[index];
+      const collectible = course.collectibles[index];
+
+      if (!view) {
+        continue;
+      }
+      if (!collectible) {
+        view.setVisible(false);
+        continue;
+      }
+
+      view
+        .setPosition(collectible.x - distance, collectible.y)
+        .setDisplaySize(collectible.radius * 2, collectible.radius * 2)
+        .setVisible(true);
+    }
+  }
+
+  private requiredCourseSnapshot(): GeneratedCourseSnapshot {
+    const snapshot = this.host.courseSnapshot();
+    if (!snapshot) {
+      throw new Error("The Phaser scene requires a generated authored-chunk course");
+    }
+    return snapshot;
   }
 
   private applyChickenPose(animation: ChickenAnimationState, tick: number) {

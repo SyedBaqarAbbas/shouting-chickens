@@ -31,8 +31,8 @@ export interface GameSurfaceProps {
 }
 
 const RUN_OPTIONS = {
-  seed: "looping-course",
-  gameplayVersion: "sho-12",
+  seed: "authored-launch",
+  gameplayVersion: "sho-15-authored-v1",
 } as const;
 
 export function GameSurface({
