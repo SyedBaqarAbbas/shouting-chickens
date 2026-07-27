@@ -303,6 +303,7 @@ class ChickenWorldScene extends Phaser.Scene {
 
   private render(snapshot: SimulationSnapshot) {
     const hud = this.host.hudSnapshot();
+    const presentation = this.host.presentationSnapshot();
 
     for (const view of [...this.platformViews, ...this.spikeViews, ...this.waterViews]) {
       view.x = projectLoopingWorldX(
@@ -313,10 +314,12 @@ class ChickenWorldScene extends Phaser.Scene {
     }
 
     const animation = snapshot.chicken.animation;
-    const runBob = animation === "run" ? Math.sin(snapshot.tick * 0.55) * 1.8 : 0;
+    const runBob =
+      !presentation.reducedMotion && animation === "run" ? Math.sin(snapshot.tick * 0.55) * 1.8 : 0;
 
     this.chicken.setPosition(snapshot.chicken.x, snapshot.chicken.y + runBob);
-    this.applyChickenPose(animation, snapshot.tick);
+    this.applyChickenPose(animation, snapshot.tick, presentation.reducedMotion);
+    this.sound.mute = presentation.muted;
     this.scoreLabel.setText(
       `Survived ${(snapshot.elapsedMs / 1_000).toFixed(1)}s · ${snapshot.score}`,
     );
@@ -356,7 +359,7 @@ class ChickenWorldScene extends Phaser.Scene {
     this.phaseLabel.setText(phaseCopy).setVisible(Boolean(phaseCopy));
   }
 
-  private applyChickenPose(animation: ChickenAnimationState, tick: number) {
+  private applyChickenPose(animation: ChickenAnimationState, tick: number, reducedMotion: boolean) {
     this.chicken.setScale(1);
 
     switch (animation) {
@@ -365,7 +368,7 @@ class ChickenWorldScene extends Phaser.Scene {
         this.chickenWing.setAngle(8);
         break;
       case "run":
-        this.chicken.setAngle(Math.sin(tick * 0.55) * 2);
+        this.chicken.setAngle(reducedMotion ? 0 : Math.sin(tick * 0.55) * 2);
         this.chickenWing.setAngle(12);
         break;
       case "jump":
@@ -374,7 +377,7 @@ class ChickenWorldScene extends Phaser.Scene {
         break;
       case "flap":
         this.chicken.setAngle(-4);
-        this.chickenWing.setAngle(tick % 6 < 3 ? -34 : 20);
+        this.chickenWing.setAngle(reducedMotion ? -8 : tick % 6 < 3 ? -34 : 20);
         break;
       case "death":
         this.chicken.setAngle(82);

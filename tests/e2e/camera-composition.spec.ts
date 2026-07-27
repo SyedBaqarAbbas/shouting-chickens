@@ -74,13 +74,13 @@ async function cameraHarness(page: Page): Promise<CameraHarnessState> {
 
 async function expectMountedGame(page: Page) {
   const fallback = page.getByRole("button", { name: "Use keyboard or touch" });
-  if (await fallback.isVisible().catch(() => false)) {
-    await fallback.click();
-    await page.getByRole("button", { name: "Start run" }).click();
-  } else if ((await page.getByTestId("game-surface").count()) === 0) {
-    await fallback.waitFor();
-    await fallback.click();
-    await page.getByRole("button", { name: "Start run" }).click();
+  const start = page.getByRole("button", { name: "Start run" });
+  if ((await page.getByTestId("game-surface").count()) === 0) {
+    await expect(fallback.or(start)).toBeVisible();
+    if (await fallback.isVisible().catch(() => false)) {
+      await fallback.click();
+    }
+    await start.click();
   }
 
   const surface = page.getByTestId("game-surface");
@@ -151,7 +151,7 @@ test("camera denial and unavailability preserve the running game fallback", asyn
     await page.goto("/");
     const surface = await expectMountedGame(page);
 
-    await page.getByRole("button", { name: "Camera off · Enable" }).click();
+    await page.locator(".camera-toggle").click();
     await expect(page.locator("#camera-status")).toContainText(scenario.copy);
     await expect(
       page.getByRole("button", {
@@ -251,6 +251,7 @@ test("uses one shared landscape pause and restores the portrait composition on r
   const surface = await expectMountedGame(page);
   await page.getByRole("button", { name: "Camera off · Enable" }).click();
   await expect(page.getByTestId("camera-video")).toBeVisible();
+  await page.keyboard.down("Space");
 
   await page.setViewportSize({ width: 844, height: 390 });
   await expect(page.getByText("Rotate your device to play")).toBeVisible();
@@ -261,9 +262,10 @@ test("uses one shared landscape pause and restores the portrait composition on r
 
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.getByText("Rotate your device to play")).toBeHidden();
-  await expect(page.getByRole("button", { name: "Camera off · Enable" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Camera preferred · Enable" })).toBeVisible();
   await expect(page.getByTestId("camera-video")).toHaveCount(0);
   await expect(surface).toHaveAttribute("data-simulation-phase", "running");
+  await page.keyboard.up("Space");
 });
 
 test("keeps a centered portrait letterbox on desktop", async ({ page }) => {

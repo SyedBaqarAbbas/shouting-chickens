@@ -147,6 +147,41 @@ describe("PhaserGameRuntime", () => {
     runtime.destroy();
   });
 
+  it("applies presentation preferences without restarting the run", async () => {
+    const runtime = new PhaserGameRuntime({
+      phaserFactory: () => ({
+        game: { destroy: vi.fn() },
+        ready: Promise.resolve(),
+      }),
+      inputSourceFactory: () => new LifecycleInput(),
+      renderResolution: 1,
+      clock: new ManualClock(),
+    });
+    const container = document.createElement("div");
+    await runtime.mount(container);
+    runtime.startRun(RUN_OPTIONS);
+    const generation = container.dataset.runGeneration;
+
+    runtime.setPresentationPreferences({
+      muted: true,
+      reducedMotion: true,
+      screenShakeEnabled: false,
+    });
+
+    expect(runtime.presentationSnapshot()).toEqual({
+      muted: true,
+      reducedMotion: true,
+      screenShakeEnabled: false,
+    });
+    expect(container.dataset).toMatchObject({
+      muted: "true",
+      reducedMotion: "true",
+      screenShakeEnabled: "false",
+      runGeneration: generation,
+    });
+    runtime.destroy();
+  });
+
   it("publishes real normalized input and active-control provenance to the HUD", async () => {
     const clock = new ManualClock();
     let feedback: InputFeedback = {
@@ -320,6 +355,7 @@ describe("PhaserGameRuntime", () => {
     expect(ended).toEqual({
       type: "ended",
       value: {
+        runId: 1,
         seed: RUN_OPTIONS.seed,
         gameplayVersion: RUN_OPTIONS.gameplayVersion,
         score: runtime.snapshot().score,
@@ -487,6 +523,7 @@ describe("PhaserGameRuntime", () => {
       expect(summaries[0]).toEqual({
         type: "ended",
         value: {
+          runId: 1,
           seed: RUN_OPTIONS.seed,
           gameplayVersion: RUN_OPTIONS.gameplayVersion,
           score: frozen.score,

@@ -68,6 +68,29 @@ local Privacy and Support pages. The MVP processes microphone and optional
 camera input on-device. It does not upload raw media or persist recordings;
 calibration playback is transient and remains only in the current tab.
 
+## Local settings, privacy, and fallback controls
+
+After setup, **Accessibility & settings** stores one versioned
+`shouting-chickens.player-data.v2` record in this browser. It contains only
+derived calibration thresholds, local best/run statistics, the camera
+preference, mute, reduced-motion, screen-shake, preferred-control, and safety
+copy versions. It never contains microphone samples, calibration playback,
+camera frames, or raw media. Corrupt or unknown data restores safe defaults;
+**Reset local game data** removes every `shouting-chickens.*` key without
+clearing another app's origin storage.
+
+Every run is playable without a microphone:
+
+- press `Space` or `Arrow Up` for a jump and hold briefly for lift;
+- tap or press and hold anywhere on the playfield for the same jump/lift input;
+- use the visible Pause, Mute, and Settings controls with keyboard focus or a
+  touch target of at least `44 × 44 px`.
+
+Voice players can recalibrate or adjust the derived jump threshold between
+`38%` and `72%`. A saved calibration still requires a fresh browser permission
+gesture on a new visit. Camera preference never starts the camera
+automatically. Bests update only after a valid local run reaches results.
+
 ## Handcrafted course contract
 
 The MVP course is a fixed `2,500 px` cycle running at `144 px/s`. Its authored

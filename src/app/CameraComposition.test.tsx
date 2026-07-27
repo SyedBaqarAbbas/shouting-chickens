@@ -122,6 +122,25 @@ describe("CameraComposition", () => {
     expect(session.requestCameraFromGesture).not.toHaveBeenCalled();
   });
 
+  it("surfaces a saved preference without auto-prompting and reports explicit changes", async () => {
+    const user = userEvent.setup();
+    const session = new FakeCameraSession();
+    const onPreferenceChange = vi.fn();
+
+    render(
+      <CameraComposition onPreferenceChange={onPreferenceChange} preferred session={session} />,
+    );
+
+    expect(screen.getByRole("button", { name: "Camera preferred · Enable" })).toBeEnabled();
+    expect(screen.getByRole("status")).toHaveTextContent(/Camera is preferred/);
+    expect(session.requestCameraFromGesture).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Camera preferred · Enable" }));
+    expect(onPreferenceChange).toHaveBeenLastCalledWith(true);
+    await user.click(await screen.findByRole("button", { name: "Camera on · Turn off" }));
+    expect(onPreferenceChange).toHaveBeenLastCalledWith(false);
+  });
+
   it("shows loading and then attaches an allowed synthetic stream", async () => {
     const user = userEvent.setup();
     const session = new FakeCameraSession();

@@ -1,5 +1,5 @@
 import { StrictMode } from "react";
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -8,10 +8,19 @@ import type {
   GameEvent,
   GameEventListener,
   InputSource,
+  KeyValueStorage,
   VoiceFrame,
 } from "../core";
+import { MemoryStorage } from "../core/storage";
 import { createGameRuntime } from "../game/createGame";
 import type { CalibrationCapture, CalibrationCaptureSnapshot } from "../input";
+import {
+  CURRENT_COPY_VERSION,
+  GAME_STORAGE_PREFIX,
+  LOCAL_DATA_STORAGE_KEY,
+  LocalGameDataStore,
+  defaultLocalGameData,
+} from "../platform/persistence";
 import type {
   BrowserMediaSession,
   MediaResourceStatus,
@@ -38,6 +47,7 @@ const RUN_SUMMARY = {
   distance: 432,
   gameplayVersion: "sho-12",
   reason: "water" as const,
+  runId: 1,
   score: 42,
   seed: "looping-course",
   survivalMs: 4_200,
@@ -296,7 +306,12 @@ function createRuntimeHarness(fatalOnMount = false) {
 }
 
 function renderHarness(
-  options: { fatalOnMount?: boolean; landscape?: boolean; strict?: boolean } = {},
+  options: {
+    fatalOnMount?: boolean;
+    landscape?: boolean;
+    storage?: KeyValueStorage;
+    strict?: boolean;
+  } = {},
 ) {
   const session = new FakeMediaSession();
   const captures: FakeCalibrationCapture[] = [];
@@ -320,6 +335,7 @@ function renderHarness(
       createVoiceInput={createVoice}
       landscape={options.landscape ?? false}
       session={session.asSession()}
+      storage={options.storage}
     />
   );
   const view = render(options.strict ? <StrictMode>{experience}</StrictMode> : experience);
@@ -706,9 +722,16 @@ describe("GameExperience run lifecycle", () => {
     await waitFor(() => expect(heading).toHaveFocus());
     expect(runtime.pause).toHaveBeenCalled();
     expect(screen.getByTestId("game-surface")).toHaveAttribute("inert");
+    expect(screen.getByRole("dialog", { name: "Take a breath" })).toHaveAttribute(
+      "aria-modal",
+      "true",
+    );
 
-    await user.click(screen.getByRole("button", { name: "Resume run" }));
+    await user.tab({ shift: true });
+    expect(screen.getByRole("button", { name: "Accessibility & settings" })).toHaveFocus();
+    await user.keyboard("{Escape}");
     await waitFor(() => expect(runtime.resume).toHaveBeenCalled());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Pause run" })).toHaveFocus());
   });
 
   it("announces a paused phase once instead of repeating every throttled snapshot", async () => {
@@ -759,9 +782,15 @@ describe("GameExperience run lifecycle", () => {
     await waitFor(() => expect(heading).toHaveFocus());
     expect(screen.getByText("4.2s")).toBeVisible();
     expect(screen.getByTestId("game-surface")).toHaveAttribute("aria-hidden", "true");
+    expect(screen.getByRole("dialog", { name: "Nice flight" })).toHaveAttribute(
+      "aria-modal",
+      "true",
+    );
 
     await user.keyboard(" ");
     expect(runtime.restart).not.toHaveBeenCalled();
+    await user.tab({ shift: true });
+    expect(screen.getByRole("button", { name: "Accessibility & settings" })).toHaveFocus();
     await user.tab();
     expect(screen.getByRole("button", { name: "Restart run" })).toHaveFocus();
     await user.tab();
@@ -770,6 +799,21 @@ describe("GameExperience run lifecycle", () => {
     await user.click(screen.getByRole("button", { name: "Restart run" }));
     await waitFor(() => expect(runtime.restart).toHaveBeenCalledOnce());
     expect(screen.getByRole("button", { name: "Pause run" })).toBeVisible();
+  });
+
+  it("closes results with Escape and returns focus to the ready screen", async () => {
+    const harness = renderHarness();
+    const user = await startRun(harness);
+    const runtime = harness.runtime.runtimes[0]!;
+
+    act(() => runtime.emit({ type: "ended", value: RUN_SUMMARY }));
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Nice flight" })).toHaveFocus());
+    await user.keyboard("{Escape}");
+
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: "Ready to run" })).toHaveFocus(),
+    );
+    expect(screen.queryByRole("dialog", { name: "Nice flight" })).not.toBeInTheDocument();
   });
 
   it("keeps a restarted voice run paused when its microphone was lost on results", async () => {
@@ -881,6 +925,349 @@ describe("GameExperience run lifecycle", () => {
     expect(screen.getByTestId("game-surface")).toBeInTheDocument();
     expect(harness.runtime.runtimes[0]?.startRun).toHaveBeenCalledOnce();
     expect(screen.queryByRole("heading", { name: "The course could not start" })).toBeNull();
+  });
+});
+
+describe("GameExperience local settings and statistics", () => {
+  it("exposes every named preference and restores it with the fallback setup", async () => {
+    const storage = new MemoryStorage();
+    const harness = renderHarness({ storage });
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole("button", { name: "Use keyboard or touch" }));
+    await user.click(screen.getByRole("button", { name: "Accessibility & settings" }));
+    const heading = screen.getByRole("heading", { name: "Accessibility & settings" });
+    await waitFor(() => expect(heading).toHaveFocus());
+
+    const inputPreference = screen.getByRole("combobox", { name: "Preferred input" });
+    const closeSettings = screen.getByRole("button", { name: "Close settings" });
+    await user.tab({ shift: true });
+    expect(closeSettings).toHaveFocus();
+    await user.tab();
+    expect(inputPreference).toHaveFocus();
+    expect(inputPreference).toHaveValue("keyboard-touch");
+    await user.selectOptions(inputPreference, "voice");
+    await user.selectOptions(inputPreference, "keyboard-touch");
+    await user.click(screen.getByRole("checkbox", { name: "Prefer camera composition" }));
+    await user.click(screen.getByRole("checkbox", { name: "Mute game" }));
+    await user.click(screen.getByRole("checkbox", { name: "Reduce motion" }));
+    await user.click(screen.getByRole("checkbox", { name: "Screen shake" }));
+
+    expect(screen.getByRole("checkbox", { name: "Prefer camera composition" })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Mute game" })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Reduce motion" })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Screen shake" })).not.toBeChecked();
+    expect(
+      screen.getByText(/Microphone samples, recordings, and camera video are never saved/),
+    ).toBeVisible();
+
+    closeSettings.focus();
+    fireEvent.keyDown(closeSettings, { key: "Tab" });
+    expect(inputPreference).toHaveFocus();
+    fireEvent.keyDown(inputPreference, { key: "Tab", shiftKey: true });
+    expect(closeSettings).toHaveFocus();
+    await user.click(closeSettings);
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Accessibility & settings" })).toHaveFocus(),
+    );
+    harness.unmount();
+
+    const restored = renderHarness({ storage });
+    expect(screen.getByRole("heading", { name: "Ready to run" })).toBeVisible();
+    await userEvent.setup().click(screen.getByRole("button", { name: "Accessibility & settings" }));
+    expect(screen.getByRole("checkbox", { name: "Prefer camera composition" })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Mute game" })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Reduce motion" })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Screen shake" })).not.toBeChecked();
+
+    const persisted = new LocalGameDataStore(storage).read().data;
+    expect(persisted.settings).toMatchObject({
+      cameraEnabled: true,
+      controlPreference: "keyboard-touch",
+      copyVersion: CURRENT_COPY_VERSION,
+      muted: true,
+      reducedMotion: true,
+      screenShakeEnabled: false,
+    });
+    restored.unmount();
+  });
+
+  it("persists a safely bounded manual threshold and starts a clean recalibration", async () => {
+    const storage = new MemoryStorage();
+    const harness = renderHarness({ storage });
+    const { user } = await finishValidCalibration(harness);
+
+    await user.click(screen.getByRole("button", { name: "Accessibility & settings" }));
+    const threshold = screen.getByRole("slider", { name: "Voice jump threshold" });
+    expect(threshold).toHaveValue("51");
+    fireEvent.change(threshold, { target: { value: "72" } });
+
+    expect(threshold).toHaveValue("72");
+    expect(new LocalGameDataStore(storage).read().data.calibration).toMatchObject({
+      jumpEnterLevel: 0.72,
+      jumpExitLevel: 0.52,
+      liftStartLevel: 0.72,
+    });
+    expect(harness.voices[0]?.stop).toHaveBeenCalled();
+    expect(harness.voices).toHaveLength(2);
+
+    await user.click(screen.getByRole("button", { name: "Recalibrate microphone" }));
+    expect(
+      await screen.findByRole("heading", { name: "Calibrate your comfortable range" }),
+    ).toBeVisible();
+    expect(new LocalGameDataStore(storage).read().data.calibration).toBeNull();
+    expect(harness.captures).toHaveLength(2);
+  });
+
+  it("pauses the same active run, locks unsafe settings, and restores focus on Escape", async () => {
+    const harness = renderHarness();
+    const user = await startRun(harness, true);
+    const runtime = harness.runtime.runtimes[0]!;
+    runtime.pause.mockClear();
+    runtime.resume.mockClear();
+    const settingsButton = screen.getByRole("button", { name: "Settings" });
+
+    await user.click(settingsButton);
+
+    expect(screen.getByRole("dialog", { name: "Accessibility & settings" })).toHaveAttribute(
+      "aria-modal",
+      "true",
+    );
+    expect(
+      screen.getByText(/Input preference and calibration can be changed after this run/),
+    ).toBeVisible();
+    expect(screen.getByRole("combobox", { name: "Preferred input" })).toBeDisabled();
+    expect(screen.getByRole("slider", { name: "Voice jump threshold" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Recalibrate microphone" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Return to paused run" })).toBeVisible();
+    expect(runtime.pause).toHaveBeenCalled();
+    expect(harness.runtime.runtimes).toHaveLength(1);
+
+    await user.click(screen.getByRole("checkbox", { name: "Reduce motion" }));
+    expect(screen.getByTestId("game-surface")).toHaveAttribute("data-reduced-motion", "true");
+    await user.keyboard("{Escape}");
+
+    expect(screen.getByRole("button", { name: "Settings" })).toBeVisible();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Settings" })).toHaveFocus());
+    expect(runtime.resume).toHaveBeenCalled();
+    expect(runtime.startRun).toHaveBeenCalledOnce();
+    expect(runtime.restart).not.toHaveBeenCalled();
+    expect(harness.runtime.runtimes).toHaveLength(1);
+  });
+
+  it("resets all game-owned storage immediately and preserves unrelated origin data", async () => {
+    const storage = new MemoryStorage();
+    const initial = defaultLocalGameData();
+    new LocalGameDataStore(storage).write({
+      ...initial,
+      settings: {
+        ...initial.settings,
+        copyVersion: CURRENT_COPY_VERSION,
+        muted: true,
+      },
+      statistics: {
+        bestDistance: 900,
+        bestScore: 90,
+        completedRuns: 4,
+        longestSurvivalMs: 9_000,
+      },
+    });
+    storage.set(`${GAME_STORAGE_PREFIX}future-owned.v9`, "remove");
+    storage.set("unrelated.preference", "preserve");
+    renderHarness({ storage });
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole("button", { name: "Accessibility & settings" }));
+    await user.click(screen.getByRole("button", { name: "Reset local game data" }));
+    expect(screen.getByRole("alert")).toHaveTextContent(/removes all Shouting Chickens settings/);
+    await user.click(screen.getByRole("button", { name: "Confirm reset" }));
+
+    expect(
+      screen.getByRole("heading", { name: "Play with your voice—or without it" }),
+    ).toBeVisible();
+    expect(screen.getByText(/Local game data cleared/)).toBeVisible();
+    expect(storage.keys()).toEqual(["unrelated.preference"]);
+  });
+
+  it("records a valid ended event once in local bests and ignores quit summaries", async () => {
+    const storage = new MemoryStorage();
+    const harness = renderHarness({ storage });
+    await startRun(harness);
+    const runtime = harness.runtime.runtimes[0]!;
+
+    act(() => runtime.emit({ type: "ended", value: RUN_SUMMARY }));
+    expect(screen.getByText("Local best: 42 · Finished runs: 1")).toBeVisible();
+    expect(new LocalGameDataStore(storage).read().data.statistics).toMatchObject({
+      bestDistance: 432,
+      bestScore: 42,
+      completedRuns: 1,
+      longestSurvivalMs: 4_200,
+    });
+
+    act(() => runtime.emit({ type: "ended", value: RUN_SUMMARY }));
+    act(() =>
+      runtime.emit({
+        type: "ended",
+        value: { ...RUN_SUMMARY, runId: 99, score: 999 },
+      }),
+    );
+    expect(new LocalGameDataStore(storage).read().data.statistics).toMatchObject({
+      bestScore: 42,
+      completedRuns: 1,
+    });
+
+    act(() =>
+      runtime.emit({
+        type: "ended",
+        value: { ...RUN_SUMMARY, reason: "quit", score: 999 },
+      }),
+    );
+    expect(new LocalGameDataStore(storage).read().data.statistics).toMatchObject({
+      bestScore: 42,
+      completedRuns: 1,
+    });
+  });
+
+  it("resets run identity for a fresh runtime after restart and return to ready", async () => {
+    const storage = new MemoryStorage();
+    const harness = renderHarness({ storage });
+    const user = await startRun(harness);
+    const firstRuntime = harness.runtime.runtimes[0]!;
+
+    act(() => firstRuntime.emit({ type: "ended", value: RUN_SUMMARY }));
+    await user.click(screen.getByRole("button", { name: "Restart run" }));
+    act(() =>
+      firstRuntime.emit({
+        type: "ended",
+        value: { ...RUN_SUMMARY, runId: 2, score: 50 },
+      }),
+    );
+    await user.click(screen.getByRole("button", { name: "Quit to ready screen" }));
+    await user.click(screen.getByRole("button", { name: "Start run" }));
+    await waitFor(() => expect(harness.runtime.runtimes).toHaveLength(2));
+    const freshRuntime = harness.runtime.runtimes[1]!;
+
+    act(() =>
+      freshRuntime.emit({
+        type: "ended",
+        value: { ...RUN_SUMMARY, runId: 1, score: 60 },
+      }),
+    );
+
+    expect(screen.getByRole("heading", { name: "Nice flight" })).toBeVisible();
+    expect(new LocalGameDataStore(storage).read().data.statistics).toMatchObject({
+      bestScore: 60,
+      completedRuns: 3,
+    });
+  });
+
+  it("realigns run identity when result settings remount the runtime", async () => {
+    const storage = new MemoryStorage();
+    const harness = renderHarness({ storage });
+    const user = await startRun(harness, true);
+    const firstRuntime = harness.runtime.runtimes[0]!;
+
+    act(() => firstRuntime.emit({ type: "ended", value: RUN_SUMMARY }));
+    await user.click(screen.getByRole("button", { name: "Restart run" }));
+    act(() =>
+      firstRuntime.emit({
+        type: "ended",
+        value: { ...RUN_SUMMARY, runId: 2, score: 50 },
+      }),
+    );
+    await user.click(screen.getByRole("button", { name: "Accessibility & settings" }));
+    const threshold = screen.getByRole("slider", { name: "Voice jump threshold" });
+    fireEvent.change(threshold, { target: { value: "72" } });
+    await waitFor(() => expect(harness.runtime.runtimes).toHaveLength(2));
+    const remountedRuntime = harness.runtime.runtimes[1]!;
+
+    await user.click(screen.getByRole("button", { name: "Close settings" }));
+    await user.click(screen.getByRole("button", { name: "Restart run" }));
+    act(() =>
+      remountedRuntime.emit({
+        type: "ended",
+        value: { ...RUN_SUMMARY, runId: 2, score: 60 },
+      }),
+    );
+
+    expect(screen.getByRole("heading", { name: "Nice flight" })).toBeVisible();
+    expect(new LocalGameDataStore(storage).read().data.statistics).toMatchObject({
+      bestScore: 60,
+      completedRuns: 3,
+    });
+  });
+
+  it("routes a new voice preference through permission instead of silently restarting fallback", async () => {
+    const harness = renderHarness();
+    const user = await startRun(harness);
+    const runtime = harness.runtime.runtimes[0]!;
+    act(() => runtime.emit({ type: "ended", value: RUN_SUMMARY }));
+
+    await user.click(screen.getByRole("button", { name: "Accessibility & settings" }));
+    await user.selectOptions(screen.getByRole("combobox", { name: "Preferred input" }), "voice");
+    await user.click(screen.getByRole("button", { name: "Close settings" }));
+    await user.click(screen.getByRole("button", { name: "Restart run" }));
+
+    expect(
+      screen.getByRole("heading", { name: "Play with your voice—or without it" }),
+    ).toBeVisible();
+    expect(screen.getByText(/Voice is preferred/)).toBeVisible();
+    expect(runtime.restart).not.toHaveBeenCalled();
+  });
+
+  it("guards ready-screen starts after a result changes the preference to inactive voice", async () => {
+    const harness = renderHarness();
+    const user = await startRun(harness);
+    const runtime = harness.runtime.runtimes[0]!;
+    act(() => runtime.emit({ type: "ended", value: RUN_SUMMARY }));
+
+    await user.click(screen.getByRole("button", { name: "Accessibility & settings" }));
+    await user.selectOptions(screen.getByRole("combobox", { name: "Preferred input" }), "voice");
+    await user.click(screen.getByRole("button", { name: "Close settings" }));
+    await user.click(screen.getByRole("button", { name: "Quit to ready screen" }));
+    await user.click(screen.getByRole("button", { name: "Start run" }));
+
+    expect(
+      screen.getByRole("heading", { name: "Play with your voice—or without it" }),
+    ).toBeVisible();
+    expect(screen.getByText(/Voice is preferred/)).toBeVisible();
+    expect(runtime.restart).not.toHaveBeenCalled();
+    expect(harness.runtime.runtimes).toHaveLength(1);
+  });
+
+  it("uses a saved derived calibration after a fresh permission gesture", async () => {
+    const storage = new MemoryStorage();
+    const initial = defaultLocalGameData();
+    new LocalGameDataStore(storage).write({
+      ...initial,
+      calibration: PROFILE,
+      settings: {
+        ...initial.settings,
+        controlPreference: "voice",
+        copyVersion: CURRENT_COPY_VERSION,
+      },
+    });
+    const harness = renderHarness({ storage });
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole("button", { name: "Enable microphone" }));
+
+    expect(await screen.findByRole("heading", { name: "Ready to run" })).toBeVisible();
+    expect(harness.createCapture).not.toHaveBeenCalled();
+    expect(harness.createVoice).toHaveBeenCalledWith(harness.session, PROFILE);
+    expect(screen.getByText(/Microphone \+ fallback controls/)).toBeVisible();
+  });
+
+  it("announces corrupt persisted data recovery without blocking fallback play", () => {
+    const storage = new MemoryStorage();
+    storage.set(LOCAL_DATA_STORAGE_KEY, "{not-json");
+
+    renderHarness({ storage });
+
+    expect(
+      screen.getByText(/Saved game data was unreadable, so safe defaults were restored/),
+    ).toBeVisible();
+    expect(screen.getByRole("button", { name: "Use keyboard or touch" })).toBeEnabled();
   });
 });
 
