@@ -4,8 +4,10 @@ import {
   AUTHORED_CHUNK_TEMPLATES,
   AuthoredChunkSelector,
   ChunkCatalogValidationError,
+  MINIMUM_WARNING_LEAD,
   areChunkBoundariesCompatible,
   isTraversalReachable,
+  measureCollectiblePath,
   measureChunkTransition,
   validateChunkCatalog,
   type ChunkTemplate,
@@ -31,12 +33,17 @@ describe("authored chunk catalog", () => {
         width: expect.any(Number),
         minimumDifficulty: expect.any(Number),
         maximumDifficulty: expect.any(Number),
+        challengeStage: expect.stringMatching(/^(introduction|advanced)$/),
+        mechanics: expect.any(Array),
+        requiresIntroductions: expect.any(Array),
+        voiceSkills: expect.any(Array),
         entry: { platformId: expect.any(String) },
         exit: { platformId: expect.any(String) },
         requiredCapability: expect.stringMatching(/^(run|jump|lift)$/),
         platforms: expect.any(Array),
         hazards: expect.any(Array),
         collectibles: expect.any(Array),
+        warnings: expect.any(Array),
         route: expect.any(Array),
       });
 
@@ -44,6 +51,103 @@ describe("authored chunk catalog", () => {
         const measurement = measureChunkTransition(template, transition);
         expect(measurement).not.toBeNull();
         expect(isTraversalReachable(measurement!)).toBe(true);
+      }
+    }
+  });
+
+  it("keeps voice-expression skills separate from physical traversal capabilities", () => {
+    const physicalCapabilities = new Set(["run", "jump", "lift"]);
+    const voiceSkills = new Set(["release", "pulse-chain", "sustained-lift"]);
+
+    for (const template of AUTHORED_CHUNK_TEMPLATES) {
+      expect(physicalCapabilities.has(template.requiredCapability)).toBe(true);
+      for (const skill of template.voiceSkills) {
+        expect(voiceSkills.has(skill)).toBe(true);
+        expect(physicalCapabilities.has(skill)).toBe(false);
+      }
+    }
+  });
+
+  it("publishes text-and-symbol warnings for every voice-aware mechanic", () => {
+    const mechanicTemplates = AUTHORED_CHUNK_TEMPLATES.filter(
+      (template) => template.mechanics.length > 0,
+    );
+
+    expect(mechanicTemplates.length).toBeGreaterThan(0);
+    for (const template of mechanicTemplates) {
+      expect(template.warnings.length).toBeGreaterThan(0);
+      for (const warning of template.warnings) {
+        expect(warning.symbol.trim()).not.toBe("");
+        expect(warning.text).toMatch(/[a-z]/i);
+      }
+    }
+  });
+
+  it("authors a safe introduction and a gated harder variant for every mechanic", () => {
+    const mechanics = [
+      "quiet-tunnel",
+      "sustained-lift-gap",
+      "precision-islands",
+      "spike-sequence",
+      "moving-hazard",
+      "feather-path",
+    ] as const;
+
+    for (const mechanic of mechanics) {
+      const introduction = AUTHORED_CHUNK_TEMPLATES.find(
+        (template) =>
+          template.challengeStage === "introduction" && template.mechanics.includes(mechanic),
+      );
+      const advanced = AUTHORED_CHUNK_TEMPLATES.find(
+        (template) =>
+          template.challengeStage === "advanced" && template.mechanics.includes(mechanic),
+      );
+
+      expect(introduction, `${mechanic} introduction`).toBeDefined();
+      expect(advanced, `${mechanic} advanced variant`).toBeDefined();
+      expect(advanced?.requiresIntroductions).toContain(mechanic);
+      expect(advanced!.minimumDifficulty).toBeGreaterThan(introduction!.minimumDifficulty);
+    }
+  });
+
+  it("keeps every introduction and advanced feather reachable on an optional route", () => {
+    const featherTemplates = AUTHORED_CHUNK_TEMPLATES.filter((template) =>
+      template.mechanics.includes("feather-path"),
+    );
+
+    expect(featherTemplates.map((template) => template.challengeStage).sort()).toEqual([
+      "advanced",
+      "introduction",
+    ]);
+    for (const template of featherTemplates) {
+      expect(template.collectibles.length).toBeGreaterThan(0);
+      for (const collectible of template.collectibles) {
+        const path = measureCollectiblePath(template, collectible);
+        expect(collectible.optional).toBe(true);
+        expect(path).not.toBeNull();
+        expect(isTraversalReachable(path!)).toBe(true);
+        expect(template.route).not.toContainEqual(
+          expect.objectContaining({
+            fromPlatformId: collectible.id,
+          }),
+        );
+        expect(template.route).not.toContainEqual(
+          expect.objectContaining({
+            toPlatformId: collectible.id,
+          }),
+        );
+      }
+    }
+  });
+
+  it("places every warning at least one reaction lead before its target", () => {
+    for (const template of AUTHORED_CHUNK_TEMPLATES) {
+      for (const warning of template.warnings) {
+        const target = [...template.platforms, ...template.hazards, ...template.collectibles].find(
+          (entity) => entity.id === warning.targetId,
+        )!;
+
+        expect(target.x - warning.x).toBeGreaterThanOrEqual(MINIMUM_WARNING_LEAD);
       }
     }
   });
@@ -118,6 +222,35 @@ describe("authored chunk catalog", () => {
     }
   });
 
+  it("never selects an advanced mechanic before its safe introduction", () => {
+    for (let seedIndex = 0; seedIndex < 40; seedIndex += 1) {
+      const selector = new AuthoredChunkSelector(AUTHORED_CHUNK_TEMPLATES, {
+        seed: `ordering-${seedIndex}`,
+        gameplayVersion: "content-v2",
+        repeatWindow: 2,
+      });
+      const introduced = new Set<string>();
+      let advancedCount = 0;
+
+      for (let index = 0; index < 300; index += 1) {
+        const selected = selector.next(5);
+
+        if (selected.challengeStage === "advanced") {
+          advancedCount += 1;
+          for (const required of selected.requiresIntroductions) {
+            expect(introduced.has(required)).toBe(true);
+          }
+        } else {
+          for (const mechanic of selected.mechanics) {
+            introduced.add(mechanic);
+          }
+        }
+      }
+
+      expect(advancedCount).toBeGreaterThan(0);
+    }
+  });
+
   it.each([
     {
       name: "missing entry",
@@ -162,6 +295,11 @@ describe("authored chunk catalog", () => {
             x: template.width + 20,
             y: 500,
             radius: 10,
+            optional: true,
+            path: {
+              fromPlatformId: template.entry.platformId,
+              requiredCapability: "jump",
+            },
           },
         ],
       }),
@@ -195,6 +333,11 @@ describe("authored chunk catalog", () => {
           x: 200,
           y: 500,
           radius: 10,
+          optional: true,
+          path: {
+            fromPlatformId: AUTHORED_CHUNK_TEMPLATES[1]!.entry.platformId,
+            requiredCapability: "jump",
+          },
         },
       ],
     };
@@ -205,12 +348,45 @@ describe("authored chunk catalog", () => {
     expect(() => validateChunkCatalog([duplicateEntity])).toThrow(/reuses entity id/);
   });
 
+  it("rejects advanced content without a catalogued introduction", () => {
+    const advanced = AUTHORED_CHUNK_TEMPLATES.find(
+      (template) => template.id === "quiet-tunnel-advanced",
+    )!;
+
+    expect(() => validateChunkCatalog([advanced])).toThrow(
+      /requires a missing quiet-tunnel introduction/,
+    );
+  });
+
+  it("rejects a warning that appears too late to react to its target", () => {
+    const source = AUTHORED_CHUNK_TEMPLATES.find(
+      (template) => template.id === "moving-spike-intro",
+    )!;
+    const target = source.hazards.find((hazard) => hazard.id === source.warnings[0]!.targetId)!;
+    const lateWarning: ChunkTemplate = {
+      ...source,
+      id: "late-moving-warning",
+      warnings: [
+        {
+          ...source.warnings[0]!,
+          x: target.x - MINIMUM_WARNING_LEAD + 1,
+        },
+      ],
+    };
+
+    expect(() => validateChunkCatalog([lateWarning])).toThrow(/is not readable without color/);
+  });
+
   it("rejects an internally reachable chunk whose exit cannot reach any next entry", () => {
     const impossibleBoundary: ChunkTemplate = {
       id: "one-way-climb",
       width: 900,
       minimumDifficulty: 1,
       maximumDifficulty: 1,
+      challengeStage: "introduction",
+      mechanics: [],
+      requiresIntroductions: [],
+      voiceSkills: [],
       entry: { platformId: "entry" },
       exit: { platformId: "exit" },
       requiredCapability: "lift",
@@ -221,6 +397,7 @@ describe("authored chunk catalog", () => {
       ],
       hazards: [],
       collectibles: [],
+      warnings: [],
       route: [
         {
           fromPlatformId: "entry",

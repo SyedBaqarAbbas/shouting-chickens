@@ -35,6 +35,10 @@ export type PhaserGameHandle = {
     sceneObjects: number;
     activeTimers: number;
     pooledObjects: number;
+    renderedWarnings?: number;
+    renderedQuietZones?: number;
+    renderedCollectibles?: number;
+    renderedMovingHazards?: number;
   };
 };
 
@@ -58,6 +62,10 @@ export type RuntimeDiagnostics = {
   collisionZones: number;
   pooledObjects: number;
   sceneObjects: number;
+  renderedWarnings: number;
+  renderedQuietZones: number;
+  renderedCollectibles: number;
+  renderedMovingHazards: number;
   inputListeners: number;
   eventListeners: number;
   hasPhaserGame: boolean;
@@ -310,6 +318,11 @@ export class PhaserGameRuntime implements GameRuntime, PhaserFrameHost {
     }
 
     const after = this.simulation.snapshot();
+    const interactionEvents = this.simulation.drainInteractionEvents();
+
+    for (const event of interactionEvents) {
+      this.events.emit(event);
+    }
 
     const snapshotPublished = this.events.publishSnapshot({
       phase: after.phase === "dead" ? "game-over" : after.phase,
@@ -373,6 +386,10 @@ export class PhaserGameRuntime implements GameRuntime, PhaserFrameHost {
       collisionZones: simulation.collisionZones,
       pooledObjects: scene?.pooledObjects ?? simulation.pooledObjects,
       sceneObjects: scene?.sceneObjects ?? 0,
+      renderedWarnings: scene?.renderedWarnings ?? 0,
+      renderedQuietZones: scene?.renderedQuietZones ?? 0,
+      renderedCollectibles: scene?.renderedCollectibles ?? 0,
+      renderedMovingHazards: scene?.renderedMovingHazards ?? 0,
       inputListeners: this.input?.diagnostics?.().activeListeners ?? 0,
       eventListeners: this.events.listenerCount(),
       hasPhaserGame: this.game !== null,
@@ -428,6 +445,10 @@ export class PhaserGameRuntime implements GameRuntime, PhaserFrameHost {
     this.container.dataset.collisionZones = String(diagnostics.collisionZones);
     this.container.dataset.pooledObjects = String(diagnostics.pooledObjects);
     this.container.dataset.sceneObjects = String(diagnostics.sceneObjects);
+    this.container.dataset.renderedWarnings = String(diagnostics.renderedWarnings);
+    this.container.dataset.renderedQuietZones = String(diagnostics.renderedQuietZones);
+    this.container.dataset.renderedCollectibles = String(diagnostics.renderedCollectibles);
+    this.container.dataset.renderedMovingHazards = String(diagnostics.renderedMovingHazards);
     this.container.dataset.inputListeners = String(diagnostics.inputListeners);
     this.container.dataset.activeInput = this.activeInput;
     this.container.dataset.configuredInput = this.configuredInput;
@@ -450,11 +471,46 @@ export class PhaserGameRuntime implements GameRuntime, PhaserFrameHost {
     this.container.dataset.playerAnimation = snapshot.chicken.animation;
     this.container.dataset.supportingPlatform = snapshot.chicken.supportingPlatformId ?? "";
     this.container.dataset.score = String(snapshot.score);
+    this.container.dataset.simulationTick = String(snapshot.tick);
     this.container.dataset.elapsedMs = String(snapshot.elapsedMs);
     this.container.dataset.courseDistance = String(snapshot.courseDistance);
     this.container.dataset.loopsCompleted = String(snapshot.loopsCompleted);
     this.container.dataset.currentChunkIndex = String(snapshot.currentChunkIndex);
     this.container.dataset.currentChunkId = snapshot.currentChunkId ?? "";
+    const generatedSnapshot = this.generatedCourse?.snapshot(snapshot.tick);
+    const currentChunk = generatedSnapshot?.chunks.find(
+      (chunk) => chunk.chunkIndex === snapshot.currentChunkIndex,
+    );
+    const currentWarnings = generatedSnapshot?.warnings.filter(
+      (warning) => warning.chunkIndex === snapshot.currentChunkIndex,
+    );
+    this.container.dataset.currentChunkTraversal = currentChunk?.requiredCapability ?? "";
+    this.container.dataset.currentChunkVoiceSkills = currentChunk?.voiceSkills.join(",") ?? "";
+    this.container.dataset.currentChunkMechanics = currentChunk?.mechanics.join(",") ?? "";
+    this.container.dataset.currentChunkChallengeStage = currentChunk?.challengeStage ?? "";
+    this.container.dataset.currentChunkDifficulty = currentChunk
+      ? `${currentChunk.minimumDifficulty}-${currentChunk.maximumDifficulty}`
+      : "";
+    this.container.dataset.currentChunkWarning =
+      currentWarnings?.map((warning) => `${warning.symbol} ${warning.text}`).join(" | ") ?? "";
+    this.container.dataset.activeChunkIds =
+      generatedSnapshot?.chunks.map((chunk) => chunk.templateId).join(",") ?? "";
+    this.container.dataset.activeWarningCopy =
+      generatedSnapshot?.warnings
+        .map((warning) => `${warning.symbol} ${warning.text}`)
+        .join(" | ") ?? "";
+    this.container.dataset.activeWarningCount = String(generatedSnapshot?.warnings.length ?? 0);
+    this.container.dataset.movingHazardPhases =
+      generatedSnapshot?.spikes
+        .filter((spike) => spike.kind === "moving-spike")
+        .map((spike) => `${spike.id}@${spike.motion?.phaseTick ?? 0}`)
+        .join(",") ?? "";
+    this.container.dataset.movingHazardState =
+      generatedSnapshot?.spikes
+        .filter((spike) => spike.kind === "moving-spike")
+        .map((spike) => `${spike.id}@${spike.x.toFixed(3)}`)
+        .join(",") ?? "";
+    this.container.dataset.collectedCollectibles = String(snapshot.collectedCollectibleIds.length);
     this.container.dataset.deathReason = snapshot.deathReason ?? "";
     this.container.dataset.collisionId = snapshot.collisionId ?? "";
 

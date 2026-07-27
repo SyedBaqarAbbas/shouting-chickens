@@ -1,4 +1,4 @@
-import type { ControlIntent, RunEndReason } from "../core";
+import type { ControlIntent, GameplayInteractionEvent, RunEndReason } from "../core";
 import {
   COURSE_LENGTH,
   COURSE_WORLD_SPEED,
@@ -14,7 +14,11 @@ import {
   FixedStepPlayerController,
   type PlayerControllerTuning,
 } from "./FixedStepPlayerController";
-import { GeneratedChunkCourse } from "./GeneratedChunkCourse";
+import {
+  GeneratedChunkCourse,
+  type GeneratedCollectibleDefinition,
+  type GeneratedQuietZoneDefinition,
+} from "./GeneratedChunkCourse";
 
 export const LOGICAL_GAME_WIDTH = 432;
 export const LOGICAL_GAME_HEIGHT = 768;
@@ -35,6 +39,10 @@ const LANDING_EPSILON = 0.001;
 export type ChickenAnimationState = "idle" | "run" | "jump" | "flap" | "death";
 export type SimulationPhase = "ready" | "running" | "paused" | "dead";
 export type SimulationDeathReason = Extract<RunEndReason, "water" | "fall" | "hazard">;
+type HazardCollisionKind = Extract<
+  GameplayInteractionEvent,
+  { type: "hazard-collision" }
+>["value"]["kind"];
 
 export type SimulationSnapshot = {
   phase: SimulationPhase;
@@ -57,6 +65,7 @@ export type SimulationSnapshot = {
   deathReason: SimulationDeathReason | null;
   collisionId: string | null;
   landingCount: number;
+  collectedCollectibleIds: readonly string[];
 };
 
 export type SimulationDiagnostics = {
@@ -86,9 +95,18 @@ type PlatformInstance = PlatformDefinition & {
 
 type SpikeInstance = SpikeHazardDefinition & {
   worldX: number;
+  kind?: "spike" | "moving-spike";
 };
 
 type WaterInstance = WaterZoneDefinition & {
+  worldX: number;
+};
+
+type QuietZoneInstance = GeneratedQuietZoneDefinition & {
+  worldX: number;
+};
+
+type CollectibleInstance = GeneratedCollectibleDefinition & {
   worldX: number;
 };
 
@@ -96,12 +114,15 @@ type WorldGeometry = Readonly<{
   platforms: readonly PlatformInstance[];
   spikes: readonly SpikeInstance[];
   water: readonly WaterInstance[];
+  quietZones: readonly QuietZoneInstance[];
+  collectibles: readonly CollectibleInstance[];
 }>;
 
 function copySnapshot(snapshot: SimulationSnapshot): SimulationSnapshot {
   return {
     ...snapshot,
     chicken: { ...snapshot.chicken },
+    collectedCollectibleIds: [...snapshot.collectedCollectibleIds],
   };
 }
 
@@ -236,6 +257,38 @@ function isOverWater(zone: WaterInstance, chickenWorldX: number, chickenBottom: 
   );
 }
 
+function isInsideQuietZone(
+  zone: QuietZoneInstance,
+  previousWorldX: number,
+  nextWorldX: number,
+  lift: number,
+) {
+  const sweptLeft = Math.min(previousWorldX, nextWorldX) - CHICKEN_BODY_WIDTH / 2;
+  const sweptRight = Math.max(previousWorldX, nextWorldX) + CHICKEN_BODY_WIDTH / 2;
+
+  return (
+    lift > zone.maximumLift && sweptRight > zone.worldX && sweptLeft < zone.worldX + zone.width
+  );
+}
+
+function intersectsCollectible(
+  collectible: CollectibleInstance,
+  previousWorldX: number,
+  nextWorldX: number,
+  chickenY: number,
+) {
+  const chickenLeft = Math.min(previousWorldX, nextWorldX) - CHICKEN_BODY_WIDTH / 2;
+  const chickenRight = Math.max(previousWorldX, nextWorldX) + CHICKEN_BODY_WIDTH / 2;
+  const chickenTop = chickenY - CHICKEN_BODY_HEIGHT / 2;
+  const chickenBottom = chickenY + CHICKEN_BODY_HEIGHT / 2;
+  const nearestX = Math.max(chickenLeft, Math.min(collectible.worldX, chickenRight));
+  const nearestY = Math.max(chickenTop, Math.min(collectible.y, chickenBottom));
+  const deltaX = collectible.worldX - nearestX;
+  const deltaY = collectible.y - nearestY;
+
+  return deltaX * deltaX + deltaY * deltaY <= collectible.radius * collectible.radius;
+}
+
 export class ChickenSimulation {
   readonly platforms: readonly PlatformDefinition[];
   readonly spikes: readonly SpikeHazardDefinition[];
@@ -246,6 +299,9 @@ export class ChickenSimulation {
 
   private destroyed = false;
   private readonly playerController: FixedStepPlayerController;
+  private readonly collectedCollectibleIds = new Set<string>();
+  private readonly emittedCollisionIds = new Set<string>();
+  private interactionEvents: GameplayInteractionEvent[] = [];
   private snapshotValue: SimulationSnapshot;
 
   constructor(options: SimulationOptions = {}) {
@@ -343,6 +399,9 @@ export class ChickenSimulation {
   reset() {
     this.assertAlive();
     this.playerController.reset();
+    this.collectedCollectibleIds.clear();
+    this.emittedCollisionIds.clear();
+    this.interactionEvents = [];
     this.snapshotValue = this.createInitialSnapshot();
     return this.snapshot();
   }
@@ -363,7 +422,7 @@ export class ChickenSimulation {
     state.score = Math.floor(state.elapsedMs / SURVIVAL_SCORE_INTERVAL_MS);
     state.distance += this.worldSpeed * STEP_SECONDS;
     const chickenWorldX = state.distance + CHICKEN_SCREEN_X;
-    const geometry = this.worldGeometry(chickenWorldX);
+    const geometry = this.worldGeometry(chickenWorldX, state.tick);
     const nearbyPlatforms = geometry.platforms;
     const currentChunk = this.generatedCourse?.chunkAt(chickenWorldX);
 
@@ -431,12 +490,37 @@ export class ChickenSimulation {
       }
     }
 
+    for (const collectible of geometry.collectibles) {
+      if (
+        !this.collectedCollectibleIds.has(collectible.id) &&
+        intersectsCollectible(collectible, previousWorldX, chickenWorldX, chicken.y)
+      ) {
+        this.collectedCollectibleIds.add(collectible.id);
+        state.collectedCollectibleIds = [...this.collectedCollectibleIds];
+        this.interactionEvents.push({
+          type: "collectible-collected",
+          value: {
+            id: collectible.id,
+            kind: collectible.kind,
+            tick: state.tick,
+          },
+        });
+      }
+    }
+
+    const quietZone = geometry.quietZones.find((candidate) =>
+      isInsideQuietZone(candidate, previousWorldX, chickenWorldX, control.lift),
+    );
+    if (quietZone) {
+      return this.endRun("hazard", quietZone.id, "quiet-zone");
+    }
+
     const spike = geometry.spikes.find((candidate) =>
       intersectsSpike(candidate, previousWorldX, chickenWorldX, chicken.y),
     );
 
     if (spike) {
-      return this.endRun("hazard", spike.id);
+      return this.endRun("hazard", spike.id, spike.kind ?? "spike");
     }
 
     const chickenBottom = chicken.y + CHICKEN_BODY_HEIGHT / 2;
@@ -448,11 +532,11 @@ export class ChickenSimulation {
         : geometry.water.find((zone) => isOverWater(zone, chickenWorldX, chickenBottom));
 
     if (water) {
-      return this.endRun("water", water.id);
+      return this.endRun("water", water.id, "water");
     }
 
     if (chickenBottom >= FALL_DEATH_Y) {
-      return this.endRun("fall", "void");
+      return this.endRun("fall", "void", "fall");
     }
 
     chicken.animation = chicken.grounded ? "run" : control.lift > 0 ? "flap" : "jump";
@@ -463,10 +547,19 @@ export class ChickenSimulation {
     return copySnapshot(this.snapshotValue);
   }
 
+  drainInteractionEvents() {
+    const events = this.interactionEvents.map((event) => ({
+      ...event,
+      value: { ...event.value },
+    })) as GameplayInteractionEvent[];
+    this.interactionEvents = [];
+    return events;
+  }
+
   diagnostics(): SimulationDiagnostics {
     const active = !this.destroyed;
     const geometry = active
-      ? this.worldGeometry(this.snapshotValue.distance + CHICKEN_SCREEN_X)
+      ? this.worldGeometry(this.snapshotValue.distance + CHICKEN_SCREEN_X, this.snapshotValue.tick)
       : null;
     const generatedPool = this.generatedCourse?.poolCapacities();
     const waterCollisionZones = this.generatedCourse
@@ -478,7 +571,12 @@ export class ChickenSimulation {
     return {
       activeBodies: active ? 1 : 0,
       activeTimers: 0,
-      collisionZones: active ? (geometry?.spikes.length ?? 0) + waterCollisionZones + 1 : 0,
+      collisionZones: active
+        ? (geometry?.spikes.length ?? 0) +
+          (geometry?.quietZones.length ?? 0) +
+          waterCollisionZones +
+          1
+        : 0,
       pooledObjects: active
         ? (generatedPool?.total ??
           this.platforms.length + this.spikes.length + (this.water?.length ?? 1))
@@ -493,7 +591,7 @@ export class ChickenSimulation {
 
   private createInitialSnapshot(): SimulationSnapshot {
     const chickenWorldX = CHICKEN_SCREEN_X;
-    const startingPlatform = this.worldGeometry(chickenWorldX).platforms.find((platform) => {
+    const startingPlatform = this.worldGeometry(chickenWorldX, 0).platforms.find((platform) => {
       const chickenLeft = chickenWorldX - CHICKEN_BODY_WIDTH / 2;
       const chickenRight = chickenWorldX + CHICKEN_BODY_WIDTH / 2;
       return chickenRight > platform.worldX && chickenLeft < platform.worldX + platform.width;
@@ -525,12 +623,13 @@ export class ChickenSimulation {
       deathReason: null,
       collisionId: null,
       landingCount: 0,
+      collectedCollectibleIds: [],
     };
   }
 
-  private worldGeometry(aroundWorldX: number): WorldGeometry {
+  private worldGeometry(aroundWorldX: number, simulationTick: number): WorldGeometry {
     if (this.generatedCourse) {
-      const generated = this.generatedCourse.updateForFocus(aroundWorldX);
+      const generated = this.generatedCourse.updateForFocus(aroundWorldX, simulationTick);
       return {
         platforms: generated.platforms.map((platform) => ({
           ...platform,
@@ -543,6 +642,14 @@ export class ChickenSimulation {
         water: generated.water.map((zone) => ({
           ...zone,
           worldX: zone.x,
+        })),
+        quietZones: generated.quietZones.map((zone) => ({
+          ...zone,
+          worldX: zone.x,
+        })),
+        collectibles: generated.collectibles.map((collectible) => ({
+          ...collectible,
+          worldX: collectible.x,
         })),
       };
     }
@@ -566,14 +673,32 @@ export class ChickenSimulation {
               aroundWorldX,
               this.courseLength,
             ) as readonly WaterInstance[]),
+      quietZones: [],
+      collectibles: [],
     };
   }
 
-  private endRun(reason: SimulationDeathReason, collisionId: string) {
+  private endRun(
+    reason: SimulationDeathReason,
+    collisionId: string,
+    collisionKind: HazardCollisionKind,
+  ) {
     const state = this.snapshotValue;
 
     if (state.phase === "dead") {
       return this.snapshot();
+    }
+
+    if (!this.emittedCollisionIds.has(collisionId)) {
+      this.emittedCollisionIds.add(collisionId);
+      this.interactionEvents.push({
+        type: "hazard-collision",
+        value: {
+          id: collisionId,
+          kind: collisionKind,
+          tick: state.tick,
+        },
+      });
     }
 
     state.phase = "dead";

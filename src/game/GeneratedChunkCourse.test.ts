@@ -95,12 +95,30 @@ const CONTINUOUS_TEMPLATES = [
     width: 900,
     minimumDifficulty: 1,
     maximumDifficulty: 1,
+    challengeStage: "introduction",
+    mechanics: [],
+    requiresIntroductions: [],
+    voiceSkills: [],
     entry: { platformId: "ground" },
     exit: { platformId: "ground" },
     requiredCapability: "run",
     platforms: [{ id: "ground", x: 0, width: 900, top: 584 }],
     hazards: [],
-    collectibles: [{ id: "feather", kind: "feather", x: 450, y: 520, radius: 10 }],
+    collectibles: [
+      {
+        id: "feather",
+        kind: "feather",
+        x: 450,
+        y: 520,
+        radius: 10,
+        optional: true,
+        path: {
+          fromPlatformId: "ground",
+          requiredCapability: "jump",
+        },
+      },
+    ],
+    warnings: [],
     route: [],
   },
   {
@@ -108,12 +126,17 @@ const CONTINUOUS_TEMPLATES = [
     width: 900,
     minimumDifficulty: 1,
     maximumDifficulty: 1,
+    challengeStage: "introduction",
+    mechanics: [],
+    requiresIntroductions: [],
+    voiceSkills: [],
     entry: { platformId: "ground" },
     exit: { platformId: "ground" },
     requiredCapability: "run",
     platforms: [{ id: "ground", x: 0, width: 900, top: 584 }],
     hazards: [],
     collectibles: [],
+    warnings: [],
     route: [],
   },
 ] as const satisfies readonly ChunkTemplate[];
@@ -153,10 +176,11 @@ describe("GeneratedChunkCourse", () => {
       expect(snapshot.poolCapacities).toEqual(capacities);
       expect(snapshot.chunks).toHaveLength(capacities.chunkSlots);
       expect(snapshot.platforms.length).toBeLessThanOrEqual(capacities.platforms);
-      expect(snapshot.spikes.length + snapshot.water.length).toBeLessThanOrEqual(
-        capacities.hazards,
-      );
+      expect(
+        snapshot.spikes.length + snapshot.water.length + snapshot.quietZones.length,
+      ).toBeLessThanOrEqual(capacities.hazards);
       expect(snapshot.collectibles.length).toBeLessThanOrEqual(capacities.collectibles);
+      expect(snapshot.warnings.length).toBeLessThanOrEqual(capacities.warnings);
       expect(new Set(snapshot.platforms.map((platform) => platform.id)).size).toBe(
         snapshot.platforms.length,
       );
@@ -182,6 +206,78 @@ describe("GeneratedChunkCourse", () => {
     }
 
     expect(previousRecycled).toBeGreaterThan(900);
+  });
+
+  it("derives moving hazards only from run identity, chunk instance, and fixed tick", () => {
+    const template = AUTHORED_CHUNK_TEMPLATES.find(
+      (candidate) => candidate.id === "moving-spike-intro",
+    )!;
+    const first = new GeneratedChunkCourse({
+      templates: [template],
+      slotCount: 3,
+      repeatWindow: 0,
+    });
+    const replay = new GeneratedChunkCourse({
+      templates: [template],
+      slotCount: 3,
+      repeatWindow: 0,
+    });
+    first.reset("moving-seed", "gameplay-v2");
+    replay.reset("moving-seed", "gameplay-v2");
+
+    const ticks = [0, 1, 17, 60, 119, 120, 721];
+    const firstTrace = ticks.map((tick) => first.snapshot(tick).spikes);
+    const replayTrace = ticks.map((tick) => replay.snapshot(tick).spikes);
+
+    expect(replayTrace).toEqual(firstTrace);
+    expect(first.snapshot(17).spikes).toEqual(first.snapshot(17).spikes);
+    expect(first.snapshot(0).spikes[0]?.motion).toMatchObject({
+      axis: "horizontal",
+      periodTicks: 120,
+    });
+    expect(first.snapshot(0).spikes[0]?.id).toBe("0:moving-spike-intro:moving-spike");
+    expect(first.snapshot(0).spikes[1]?.id).toBe("1:moving-spike-intro:moving-spike");
+
+    const otherSeed = new GeneratedChunkCourse({
+      templates: [template],
+      slotCount: 3,
+      repeatWindow: 0,
+    });
+    otherSeed.reset("other-moving-seed", "gameplay-v2");
+    expect(otherSeed.snapshot(17).spikes.map((spike) => spike.motion?.phaseTick)).not.toEqual(
+      first.snapshot(17).spikes.map((spike) => spike.motion?.phaseTick),
+    );
+  });
+
+  it("instance-qualifies all gameplay and warning identities across recycled slots", () => {
+    const course = new GeneratedChunkCourse({ slotCount: 6 });
+    course.reset("instance-ids", "gameplay-v2");
+
+    for (let focus = CHICKEN_SCREEN_X; focus < 30_000; focus += 731) {
+      const snapshot = course.updateForFocus(focus, Math.floor(focus));
+      const ids = [
+        ...snapshot.platforms,
+        ...snapshot.spikes,
+        ...snapshot.water,
+        ...snapshot.quietZones,
+        ...snapshot.collectibles,
+        ...snapshot.warnings,
+      ].map((entity) => entity.id);
+
+      expect(new Set(ids).size).toBe(ids.length);
+      for (const entity of [
+        ...snapshot.platforms,
+        ...snapshot.spikes,
+        ...snapshot.water,
+        ...snapshot.quietZones,
+        ...snapshot.collectibles,
+        ...snapshot.warnings,
+      ]) {
+        expect(entity.id).toMatch(
+          new RegExp(`^${entity.chunkIndex}:${entity.templateId.replaceAll("-", "\\-")}:`),
+        );
+      }
+    }
   });
 
   it("runs a scripted reachable course through more than one hundred recycled chunks", () => {

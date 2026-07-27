@@ -7,6 +7,8 @@ import {
   type InputFeedback,
   type InputSource,
 } from "../core";
+import { AUTHORED_CHUNK_TEMPLATES } from "../content";
+import { GeneratedChunkCourse } from "./GeneratedChunkCourse";
 import { PhaserGameRuntime, type PhaserMountFactory } from "./PhaserGameRuntime";
 import { FIXED_STEP_MS } from "./simulation";
 import {
@@ -88,8 +90,12 @@ describe("PhaserGameRuntime", () => {
         activeBodies: 1,
         activeTimers: 0,
         collisionZones: 9,
-        pooledObjects: 42,
+        pooledObjects: 72,
         sceneObjects: 0,
+        renderedWarnings: 0,
+        renderedQuietZones: 0,
+        renderedCollectibles: 0,
+        renderedMovingHazards: 0,
         inputListeners: 0,
         eventListeners: 1,
         hasPhaserGame: true,
@@ -106,6 +112,10 @@ describe("PhaserGameRuntime", () => {
         collisionZones: 0,
         pooledObjects: 0,
         sceneObjects: 0,
+        renderedWarnings: 0,
+        renderedQuietZones: 0,
+        renderedCollectibles: 0,
+        renderedMovingHazards: 0,
         inputListeners: 0,
         eventListeners: 0,
         hasPhaserGame: false,
@@ -373,6 +383,7 @@ describe("PhaserGameRuntime", () => {
       inputSourceFactory: () => new LifecycleInput(),
       renderResolution: 1,
       clock: new ManualClock(),
+      generatedCourse: null,
     });
     const events: GameEvent[] = [];
     runtime.subscribe((event) => events.push(event));
@@ -484,6 +495,7 @@ describe("PhaserGameRuntime", () => {
     await runtime.mount(container);
 
     let stableDiagnostics: ReturnType<typeof runtime.diagnostics> | null = null;
+    let stableCollisionId: string | null = null;
 
     for (let run = 0; run < 20; run += 1) {
       if (run === 0) {
@@ -520,11 +532,14 @@ describe("PhaserGameRuntime", () => {
 
       const ended = runtime.snapshot();
       expect(ended.phase).toBe("dead");
-      expect(ended.deathReason).toBe("water");
+      expect(ended.deathReason).toBe("hazard");
+      stableCollisionId ??= ended.collisionId;
+      expect(ended.collisionId).toBe(stableCollisionId);
       expect(events.filter((event) => event.type === "ended")).toHaveLength(run + 1);
+      expect(events.filter((event) => event.type === "hazard-collision")).toHaveLength(run + 1);
       expect(container.dataset.score).toBe(String(ended.score));
       expect(container.dataset.elapsedMs).toBe(String(ended.elapsedMs));
-      expect(container.dataset.pooledObjects).toBe("42");
+      expect(container.dataset.pooledObjects).toBe("72");
 
       for (let frozenFrame = 0; frozenFrame < 10; frozenFrame += 1) {
         runtime.advanceFrame(FIXED_STEP_MS);
@@ -534,6 +549,59 @@ describe("PhaserGameRuntime", () => {
     }
 
     expect(input.resetCount).toBe(20);
+    runtime.destroy();
+  });
+
+  it("publishes a collectible once per run and recollects it after runtime restart", async () => {
+    const featherTemplate = AUTHORED_CHUNK_TEMPLATES.find(
+      (template) => template.id === "feather-path-intro",
+    )!;
+    const generatedCourse = new GeneratedChunkCourse({
+      templates: [featherTemplate],
+      slotCount: 4,
+      repeatWindow: 0,
+    });
+    const clock = new ManualClock();
+    const scripted = new ScriptedInputSource(clock, [
+      { atMs: 1_800, jumpPressed: true, lift: 0 },
+      { atMs: 1_817, jumpPressed: false, lift: 0 },
+    ]);
+    const runtime = new PhaserGameRuntime({
+      phaserFactory: () => ({
+        game: { destroy: vi.fn() },
+        ready: Promise.resolve(),
+      }),
+      inputSourceFactory: () => scripted,
+      renderResolution: 1,
+      clock,
+      generatedCourse,
+    });
+    const events: GameEvent[] = [];
+    runtime.subscribe((event) => events.push(event));
+    const container = document.createElement("div");
+    await runtime.mount(container);
+
+    for (let run = 0; run < 2; run += 1) {
+      if (run === 0) {
+        runtime.startRun(RUN_OPTIONS);
+      } else {
+        runtime.restart();
+      }
+
+      for (let tick = 0; tick < 240; tick += 1) {
+        clock.advance(FIXED_STEP_MS);
+        runtime.advanceFrame(FIXED_STEP_MS);
+      }
+
+      const collections = events.filter(
+        (event) =>
+          event.type === "collectible-collected" &&
+          event.value.id === "0:feather-path-intro:first-feather",
+      );
+      expect(collections).toHaveLength(run + 1);
+      expect(container.dataset.collectedCollectibles).toBe("1");
+    }
+
     runtime.destroy();
   });
 

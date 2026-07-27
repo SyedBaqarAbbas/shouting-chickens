@@ -35,7 +35,7 @@ export interface GameSurfaceProps {
 
 const RUN_OPTIONS = {
   seed: "authored-launch",
-  gameplayVersion: "sho-15-authored-v1",
+  gameplayVersion: "sho-16-voice-aware-v1",
 } as const;
 
 export function GameSurface({

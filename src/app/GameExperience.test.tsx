@@ -1128,6 +1128,37 @@ describe("GameExperience local settings and statistics", () => {
     });
   });
 
+  it("keeps interaction events out of results and records only the matching ended run", async () => {
+    const storage = new MemoryStorage();
+    const harness = renderHarness({ storage });
+    await startRun(harness);
+    const runtime = harness.runtime.runtimes[0]!;
+
+    act(() => {
+      runtime.emit({
+        type: "hazard-collision",
+        value: { id: "0:moving-spike-intro:first-spike", kind: "moving-spike", tick: 42 },
+      });
+      runtime.emit({
+        type: "collectible-collected",
+        value: { id: "0:feather-path-intro:first-feather", kind: "feather", tick: 43 },
+      });
+    });
+
+    expect(screen.getByTestId("game-surface")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Nice flight" })).toBeNull();
+    expect(new LocalGameDataStore(storage).read().data.statistics).toEqual(
+      defaultLocalGameData().statistics,
+    );
+
+    act(() => runtime.emit({ type: "ended", value: RUN_SUMMARY }));
+    expect(screen.getByText("Local best: 42 · Finished runs: 1")).toBeVisible();
+    expect(new LocalGameDataStore(storage).read().data.statistics).toMatchObject({
+      bestScore: 42,
+      completedRuns: 1,
+    });
+  });
+
   it("resets run identity for a fresh runtime after restart and return to ready", async () => {
     const storage = new MemoryStorage();
     const harness = renderHarness({ storage });

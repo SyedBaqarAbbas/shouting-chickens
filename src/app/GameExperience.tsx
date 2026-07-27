@@ -740,6 +740,10 @@ export function GameExperience({
         return;
       }
 
+      if (event.type !== "snapshot") {
+        return;
+      }
+
       const second = Math.floor(event.value.elapsedMs / 1_000);
       const band =
         event.value.normalizedInput < 0.15
