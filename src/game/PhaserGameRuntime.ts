@@ -35,6 +35,14 @@ export type PhaserGameHandle = {
     sceneObjects: number;
     activeTimers: number;
     pooledObjects: number;
+    activeParticles?: number;
+    artAtlasFrames?: number;
+    artAtlasSource?: string;
+    audioCueCount?: number;
+    audioState?: "idle" | "ready" | "unavailable" | "destroyed";
+    chickenArtFrame?: string;
+    invalidVisibleArtObjects?: number;
+    lastAudioCue?: string | null;
     renderedWarnings?: number;
     renderedQuietZones?: number;
     renderedCollectibles?: number;
@@ -59,6 +67,12 @@ export type RuntimeDiagnostics = {
   state: "idle" | "mounting" | "mounted" | "destroyed";
   activeBodies: number;
   activeTimers: number;
+  activeParticles: number;
+  artAtlasFrames: number;
+  artAtlasSource: string;
+  audioCueCount: number;
+  audioState: "idle" | "ready" | "unavailable" | "destroyed";
+  chickenArtFrame: string;
   collisionZones: number;
   pooledObjects: number;
   sceneObjects: number;
@@ -67,6 +81,8 @@ export type RuntimeDiagnostics = {
   renderedCollectibles: number;
   renderedMovingHazards: number;
   inputListeners: number;
+  invalidVisibleArtObjects: number;
+  lastAudioCue: string | null;
   eventListeners: number;
   hasPhaserGame: boolean;
   failedRun: FailedRunDiagnostic | null;
@@ -383,6 +399,12 @@ export class PhaserGameRuntime implements GameRuntime, PhaserFrameHost {
       state: this.stateValue,
       activeBodies: simulation.activeBodies,
       activeTimers: simulation.activeTimers + (scene?.activeTimers ?? 0),
+      activeParticles: scene?.activeParticles ?? 0,
+      artAtlasFrames: scene?.artAtlasFrames ?? 0,
+      artAtlasSource: scene?.artAtlasSource ?? "unmounted",
+      audioCueCount: scene?.audioCueCount ?? 0,
+      audioState: scene?.audioState ?? "idle",
+      chickenArtFrame: scene?.chickenArtFrame ?? "",
       collisionZones: simulation.collisionZones,
       pooledObjects: scene?.pooledObjects ?? simulation.pooledObjects,
       sceneObjects: scene?.sceneObjects ?? 0,
@@ -391,6 +413,8 @@ export class PhaserGameRuntime implements GameRuntime, PhaserFrameHost {
       renderedCollectibles: scene?.renderedCollectibles ?? 0,
       renderedMovingHazards: scene?.renderedMovingHazards ?? 0,
       inputListeners: this.input?.diagnostics?.().activeListeners ?? 0,
+      invalidVisibleArtObjects: scene?.invalidVisibleArtObjects ?? 0,
+      lastAudioCue: scene?.lastAudioCue ?? null,
       eventListeners: this.events.listenerCount(),
       hasPhaserGame: this.game !== null,
       failedRun: this.failedRun ? { ...this.failedRun } : null,
@@ -442,6 +466,12 @@ export class PhaserGameRuntime implements GameRuntime, PhaserFrameHost {
     this.container.dataset.renderResolution = String(this.options.renderResolution);
     this.container.dataset.activeBodies = String(diagnostics.activeBodies);
     this.container.dataset.activeTimers = String(diagnostics.activeTimers);
+    this.container.dataset.activeParticles = String(diagnostics.activeParticles);
+    this.container.dataset.artAtlasFrames = String(diagnostics.artAtlasFrames);
+    this.container.dataset.artAtlasSource = diagnostics.artAtlasSource;
+    this.container.dataset.audioCueCount = String(diagnostics.audioCueCount);
+    this.container.dataset.audioState = diagnostics.audioState;
+    this.container.dataset.chickenArtFrame = diagnostics.chickenArtFrame;
     this.container.dataset.collisionZones = String(diagnostics.collisionZones);
     this.container.dataset.pooledObjects = String(diagnostics.pooledObjects);
     this.container.dataset.sceneObjects = String(diagnostics.sceneObjects);
@@ -450,6 +480,8 @@ export class PhaserGameRuntime implements GameRuntime, PhaserFrameHost {
     this.container.dataset.renderedCollectibles = String(diagnostics.renderedCollectibles);
     this.container.dataset.renderedMovingHazards = String(diagnostics.renderedMovingHazards);
     this.container.dataset.inputListeners = String(diagnostics.inputListeners);
+    this.container.dataset.invalidVisibleArtObjects = String(diagnostics.invalidVisibleArtObjects);
+    this.container.dataset.lastAudioCue = diagnostics.lastAudioCue ?? "";
     this.container.dataset.activeInput = this.activeInput;
     this.container.dataset.configuredInput = this.configuredInput;
     this.container.dataset.inputLevel = this.normalizedInput.toFixed(3);

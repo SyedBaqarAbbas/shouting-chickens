@@ -14,9 +14,12 @@ import {
   validateReleaseIdentity,
 } from "./release-files.mjs";
 
+const ORIGINAL_GAME_ATLAS_FILE = "assets/shouting-chickens-atlas.svg";
+const ORIGINAL_GAME_ATLAS_BUDGET_BYTES = 24 * 1_024;
 const ALLOWED_FILES = new Set([
   ".nojekyll",
   "artifact-manifest.json",
+  ORIGINAL_GAME_ATLAS_FILE,
   "audio/voice-rms-processor.js",
   "favicon.svg",
   "index.html",
@@ -130,6 +133,19 @@ for (const file of files) {
   const bytes = await readFile(resolve(root, file));
   assertTextArtifact(file, bytes);
   const text = bytes.toString("utf8");
+  if (file === ORIGINAL_GAME_ATLAS_FILE) {
+    if (bytes.byteLength > ORIGINAL_GAME_ATLAS_BUDGET_BYTES) {
+      throw new Error(
+        `Original game atlas exceeds ${ORIGINAL_GAME_ATLAS_BUDGET_BYTES} bytes: ${bytes.byteLength}`,
+      );
+    }
+    if (
+      !text.includes('viewBox="0 0 1280 80"') ||
+      /<image\b|data:image|tiktok|watermark/i.test(text)
+    ) {
+      throw new Error("Original game atlas is malformed or contains an embedded/copied payload");
+    }
+  }
   if (/data:(?:audio|video)\//i.test(text)) {
     throw new Error(`Embedded media payload found in production artifact: ${file}`);
   }

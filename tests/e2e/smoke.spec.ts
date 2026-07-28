@@ -130,7 +130,7 @@ test("ends a run once and completely restarts the seeded authored course", async
   expect(stableResources).toMatchObject({
     bodies: "1",
     timers: "0",
-    pools: "72",
+    pools: "86",
     collisions: "10",
     inputListeners: "5",
   });
@@ -208,7 +208,7 @@ test("mounts readable voice-mechanic warnings and resets deterministic moving co
   expect(initial.warnings).toContain("PULSE");
   expect(initial.warningCount).toBeGreaterThanOrEqual(5);
   expect(initial.movementPhases).toMatch(/1:moving-spike-intro:moving-spike@\d+/);
-  expect(initial.pools).toBe("72");
+  expect(initial.pools).toBe("86");
   expect(initial.renderedWarnings).toBeGreaterThanOrEqual(5);
   expect(initial.renderedQuietZones).toBeGreaterThanOrEqual(1);
   expect(initial.renderedCollectibles).toBeGreaterThanOrEqual(1);

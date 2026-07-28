@@ -1,0 +1,164 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="80" viewBox="0 0 1280 80">
+  <title>Original Shouting Chickens vector game atlas</title>
+  <desc>Sixteen hand-authored frames for the bird, course, interface, and effects.</desc>
+  <defs>
+    <style>
+      .ink{stroke:#10233b;stroke-width:3;stroke-linecap:round;stroke-linejoin:round}
+      .cream{fill:#fff4ce}.gold{fill:#f7c84b}.coral{fill:#ff6b5e}.teal{fill:#41c7a4}
+      .sky{fill:#5eb8ff}.navy{fill:#10233b}.white{fill:#fff}
+    </style>
+  </defs>
+
+  <!-- chicken idle -->
+  <g transform="translate(0)">
+    <path class="coral ink" d="M29 19c-4-8 3-13 8-7 2-9 11-7 10 2 7-5 12 2 7 8z"/>
+    <ellipse class="gold ink" cx="40" cy="45" rx="25" ry="23"/>
+    <path class="cream ink" d="M20 45c7-12 17-13 26-4-3 13-12 19-24 14z"/>
+    <path class="teal ink" d="M23 59c10 4 23 4 35-1l-2 9c-10 6-24 5-32-1z"/>
+    <circle class="navy" cx="50" cy="36" r="3"/>
+    <path class="coral ink" d="m61 40 13 5-13 6z"/>
+    <path class="ink" fill="none" d="M31 68v7m18-7v7M26 75h10m8 0h10"/>
+  </g>
+
+  <!-- chicken run A -->
+  <g transform="translate(80)">
+    <path class="coral ink" d="M29 19c-3-8 4-12 8-6 3-9 11-6 9 2 7-4 11 3 6 8z"/>
+    <ellipse class="gold ink" cx="41" cy="44" rx="26" ry="22" transform="rotate(6 41 44)"/>
+    <path class="cream ink" d="M20 42c8-10 18-10 26-1-4 12-13 17-24 11z"/>
+    <path class="teal ink" d="M24 57c11 5 23 5 35 0l-1 9c-11 5-24 5-32-1z"/>
+    <circle class="navy" cx="52" cy="35" r="3"/>
+    <path class="coral ink" d="m63 39 13 6-14 5z"/>
+    <path class="ink" fill="none" d="m31 66-8 8m27-7 9 6M18 75h11m26-1h10"/>
+    <path class="sky ink" d="m13 53-8 3 9 3"/>
+  </g>
+
+  <!-- chicken run B -->
+  <g transform="translate(160)">
+    <path class="coral ink" d="M29 19c-3-8 4-12 8-6 3-9 11-6 9 2 7-4 11 3 6 8z"/>
+    <ellipse class="gold ink" cx="41" cy="44" rx="26" ry="22" transform="rotate(6 41 44)"/>
+    <path class="cream ink" d="M20 42c8-10 18-10 26-1-4 12-13 17-24 11z"/>
+    <path class="teal ink" d="M24 57c11 5 23 5 35 0l-1 9c-11 5-24 5-32-1z"/>
+    <circle class="navy" cx="52" cy="35" r="3"/>
+    <path class="coral ink" d="m63 39 13 6-14 5z"/>
+    <path class="ink" fill="none" d="m32 66 9 8m9-7-8 7m-5 1h10m-10 0H27"/>
+    <path class="sky ink" d="m13 48-8 3 9 3"/>
+  </g>
+
+  <!-- chicken jump -->
+  <g transform="translate(240)">
+    <path class="coral ink" d="M30 10c-3-8 4-11 8-5 3-8 11-5 9 3 7-4 11 3 6 8z"/>
+    <ellipse class="gold ink" cx="41" cy="37" rx="24" ry="27"/>
+    <path class="cream ink" d="M21 34c8-11 18-10 25 0-3 13-12 18-23 12z"/>
+    <path class="teal ink" d="M24 51c10 5 23 5 34 0l-1 9c-10 6-23 5-31-1z"/>
+    <circle class="navy" cx="51" cy="27" r="3"/>
+    <path class="coral ink" d="m61 31 14 6-14 5z"/>
+    <path class="ink" fill="none" d="m32 62-6 8 10 3m14-11 6 8-10 3"/>
+    <path class="sky ink" d="M13 59 6 67m7-19L3 53"/>
+  </g>
+
+  <!-- chicken flap A -->
+  <g transform="translate(320)">
+    <path class="coral ink" d="M29 16c-3-8 4-12 8-6 3-9 11-6 9 2 7-4 11 3 6 8z"/>
+    <ellipse class="gold ink" cx="42" cy="43" rx="24" ry="25"/>
+    <path class="cream ink" d="M26 40C9 29 7 15 15 9c8 17 19 20 29 22-1 8-7 12-18 9z"/>
+    <path class="teal ink" d="M25 57c10 5 23 5 34 0l-2 9c-10 5-23 5-30-1z"/>
+    <circle class="navy" cx="52" cy="34" r="3"/>
+    <path class="coral ink" d="m62 38 14 6-14 5z"/>
+    <path class="ink" fill="none" d="m34 66-4 8m19-8 4 8M26 75h9m14 0h9"/>
+  </g>
+
+  <!-- chicken flap B -->
+  <g transform="translate(400)">
+    <path class="coral ink" d="M29 16c-3-8 4-12 8-6 3-9 11-6 9 2 7-4 11 3 6 8z"/>
+    <ellipse class="gold ink" cx="42" cy="43" rx="24" ry="25"/>
+    <path class="cream ink" d="M25 39C7 45 5 61 13 69c10-15 22-17 32-19-2-8-9-13-20-11z"/>
+    <path class="teal ink" d="M25 57c10 5 23 5 34 0l-2 9c-10 5-23 5-30-1z"/>
+    <circle class="navy" cx="52" cy="34" r="3"/>
+    <path class="coral ink" d="m62 38 14 6-14 5z"/>
+    <path class="ink" fill="none" d="m34 66-4 8m19-8 4 8M26 75h9m14 0h9"/>
+  </g>
+
+  <!-- chicken death -->
+  <g transform="translate(480)">
+    <path class="coral ink" d="M55 20c7-5 12 2 7 8 9-1 10 8 2 10z"/>
+    <ellipse class="gold ink" cx="40" cy="45" rx="28" ry="21" transform="rotate(12 40 45)"/>
+    <path class="cream ink" d="M19 40c11-8 22-5 27 6-7 10-17 13-27 5z"/>
+    <path class="teal ink" d="M20 56c13 5 26 7 39 3l-3 9c-13 4-25 2-34-3z"/>
+    <path class="ink" fill="none" d="m49 31 7 7m0-7-7 7"/>
+    <path class="coral ink" d="m66 44 12 7-14 4z"/>
+    <path class="ink" fill="none" d="M20 68 9 73m48-4 11 6"/>
+    <path class="sky ink" d="M12 23c-5-6 3-12 8-5 3 5-3 9-8 5z"/>
+  </g>
+
+  <!-- feather -->
+  <g transform="translate(560)">
+    <path class="cream ink" d="M17 58C23 22 49 8 68 14c-1 26-19 48-48 49z"/>
+    <path class="teal ink" d="M27 50c8-16 20-25 35-31-7 14-18 25-35 31z"/>
+    <path class="ink" fill="none" d="M13 71c14-21 29-36 49-51M31 46l-11-5m20-6-8-8m18 0-4-9"/>
+    <path class="gold" d="m60 56 3 7 7 3-7 3-3 7-3-7-7-3 7-3z"/>
+  </g>
+
+  <!-- spike -->
+  <g transform="translate(640)">
+    <path class="navy ink" d="M7 68 21 25l11 25 12-40 13 39 10-25 8 44z"/>
+    <path class="white" d="m21 50 3-10 4 10zm23-18 3-10 4 12zm13 22 3-12 4 12z"/>
+    <path class="coral ink" d="M7 68h68v8H7z"/>
+  </g>
+
+  <!-- moving hazard -->
+  <g transform="translate(720)">
+    <path class="coral ink" d="m8 64 8-39 12 20 12-34 12 34 12-20 8 39z"/>
+    <circle class="white ink" cx="32" cy="51" r="7"/>
+    <circle class="white ink" cx="51" cy="51" r="7"/>
+    <circle class="navy" cx="34" cy="52" r="3"/>
+    <circle class="navy" cx="49" cy="52" r="3"/>
+    <path class="navy ink" d="M11 64h61v10H11z"/>
+    <path class="sky ink" fill="none" d="M8 15H1m75 0h-7M8 7 3 2m73 5 5-5"/>
+  </g>
+
+  <!-- microphone -->
+  <g transform="translate(800)">
+    <rect class="teal ink" x="27" y="9" width="26" height="43" rx="13"/>
+    <path class="cream" d="M34 19h12v6H34zm0 11h12v6H34z"/>
+    <path class="ink" fill="none" d="M19 39c0 29 42 29 42 0M40 64v11M29 75h22"/>
+    <path class="gold ink" d="m64 12 2 6 6 2-6 2-2 6-2-6-6-2 6-2z"/>
+  </g>
+
+  <!-- warning -->
+  <g transform="translate(880)">
+    <path class="gold ink" d="M40 7 75 70H5z"/>
+    <path class="navy" d="M36 27h8l-2 24h-4zm0 31h8v8h-8z"/>
+    <path class="coral ink" d="M7 70h66"/>
+  </g>
+
+  <!-- grass tile -->
+  <g transform="translate(960)">
+    <path class="teal" d="M0 20h80v60H0z"/>
+    <path class="gold" d="m0 24 8-10 7 10 9-17 8 17 9-12 8 12 9-18 8 18 8-11 7 11v56H0z"/>
+    <path class="ink" fill="none" d="M0 25h80"/>
+    <path fill="#fff4ce" opacity=".42" d="M8 38h18v5H8zm40 13h22v5H48z"/>
+  </g>
+
+  <!-- platform tile -->
+  <g transform="translate(1040)">
+    <path fill="#a95c38" d="M0 0h80v80H0z"/>
+    <path class="ink" fill="none" d="M0 15h80M0 48h80M22 0v15m37 0v33M34 48v32"/>
+    <path fill="#d9874d" d="M7 24h28v8H7zm42 33h24v8H49z"/>
+    <path fill="#10233b" opacity=".28" d="M0 70h80v10H0z"/>
+  </g>
+
+  <!-- water tile -->
+  <g transform="translate(1120)">
+    <path class="sky" d="M0 12h80v68H0z"/>
+    <path fill="#246ed1" d="M0 27c10-10 20-10 30 0s20 10 30 0 20-10 20-10v63H0z"/>
+    <path class="white" d="M0 15c10-10 20-10 30 0s20 10 30 0 20-10 20-10v12c-10 0-20 10-30 10s-20-10-30-10S10 27 0 27z"/>
+    <path fill="#41c7a4" opacity=".42" d="M7 48c12-7 21-7 31 0s21 7 35-1v8c-13 8-25 8-36 1S17 55 7 61z"/>
+  </g>
+
+  <!-- spark -->
+  <g transform="translate(1200)">
+    <path class="gold ink" d="m40 4 8 24 24-8-17 20 17 20-24-8-8 24-8-24-24 8 17-20L8 20l24 8z"/>
+    <circle class="white" cx="40" cy="40" r="8"/>
+    <circle class="coral" cx="40" cy="40" r="4"/>
+  </g>
+</svg>
