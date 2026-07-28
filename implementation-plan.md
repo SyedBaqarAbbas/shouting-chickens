@@ -297,6 +297,27 @@ Full-game content:
 - Lift stamina and recovery
 - Bounded difficulty curve for speed, gap width, and landing width
 
+The first full-game balance profile is intentionally fixed and replayable:
+
+| Stage | Begins at chunk | World speed | Maximum gap | Maximum rise/drop | Minimum landing |
+| ----- | --------------- | ----------- | ----------- | ----------------- | --------------- |
+| 1     | 0               | 144 px/s    | 100 px      | 56 / 90 px        | 160 px          |
+| 2     | 6               | 148 px/s    | 110 px      | 56 / 90 px        | 120 px          |
+| 3     | 14              | 152 px/s    | 110 px      | 56 / 90 px        | 120 px          |
+| 4     | 24              | 156 px/s    | 110 px      | 56 / 90 px        | 120 px          |
+| 5     | 36              | 160 px/s    | 110 px      | 56 / 90 px        | 120 px          |
+
+- A stage changes only when a new authored chunk begins. The generator gives
+  introduction chunks more weight early and advanced chunks more weight later,
+  while rejecting geometry outside the active traversal envelope.
+- Airborne lift drains stamina at 40% per second at full input and released or
+  grounded lift recovers it at 80% per second. Empty stamina suppresses lift,
+  but raw held input still fails quiet-zone rules and tunnel ceilings remain
+  solid.
+- Survival earns 10 points per second. Each feather adds 25 points and the
+  first landing on a platform no wider than 200 px adds 10 precision points.
+  Results show every component separately.
+
 ## Privacy, security, and media
 
 - Audio and video stay on the device and are never transmitted.

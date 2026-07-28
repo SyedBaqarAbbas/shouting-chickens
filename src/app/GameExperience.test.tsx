@@ -49,9 +49,38 @@ const RUN_SUMMARY = {
   reason: "water" as const,
   runId: 1,
   score: 42,
+  scoreBreakdown: {
+    survival: 42,
+    collectibles: 0,
+    precision: 0,
+    total: 42,
+  },
   seed: "looping-course",
+  statistics: {
+    distance: 432,
+    obstaclesCleared: 3,
+    collectibles: 0,
+    precisionLandings: 0,
+    longestLiftMs: 800,
+    highestDifficultyStage: 2,
+  },
   survivalMs: 4_200,
 };
+
+function runSummaryWithScore(runId: number, score: number) {
+  return {
+    ...RUN_SUMMARY,
+    runId,
+    score,
+    scoreBreakdown: {
+      survival: score,
+      collectibles: 0,
+      precision: 0,
+      total: score,
+    },
+    survivalMs: score * 100,
+  };
+}
 
 class FakeMediaSession {
   private readonly listeners = new Set<() => void>();
@@ -750,10 +779,21 @@ describe("GameExperience run lifecycle", () => {
           normalizedInput: 0,
           phase: "paused",
           score: 1,
+          scoreBreakdown: {
+            survival: 1,
+            collectibles: 0,
+            precision: 0,
+            total: 1,
+          },
+          liftStamina: 0.75,
+          difficultyStage: 2,
+          worldSpeed: 148,
         },
       }),
     );
-    expect(status).toHaveTextContent("paused. 1 seconds. Input quiet. Score 1.");
+    expect(status).toHaveTextContent(
+      "paused. Stage 2. 1 seconds. Input quiet. Lift stamina 75 percent. Score 1: 1 survival, 0 collectible, 0 precision.",
+    );
 
     act(() => {
       for (let score = 2; score <= 9; score += 1) {
@@ -765,11 +805,22 @@ describe("GameExperience run lifecycle", () => {
             normalizedInput: 0,
             phase: "paused",
             score,
+            scoreBreakdown: {
+              survival: score,
+              collectibles: 0,
+              precision: 0,
+              total: score,
+            },
+            liftStamina: 0.75,
+            difficultyStage: 2,
+            worldSpeed: 148,
           },
         });
       }
     });
-    expect(status).toHaveTextContent("paused. 1 seconds. Input quiet. Score 1.");
+    expect(status).toHaveTextContent(
+      "paused. Stage 2. 1 seconds. Input quiet. Lift stamina 75 percent. Score 1: 1 survival, 0 collectible, 0 precision.",
+    );
   });
 
   it("owns results focus and performs exactly one explicit restart", async () => {
@@ -781,6 +832,16 @@ describe("GameExperience run lifecycle", () => {
     const heading = screen.getByRole("heading", { name: "Nice flight" });
     await waitFor(() => expect(heading).toHaveFocus());
     expect(screen.getByText("4.2s")).toBeVisible();
+    expect(screen.getByText("Total score").nextElementSibling).toHaveTextContent("42");
+    expect(screen.getByText("Survival points").nextElementSibling).toHaveTextContent("42");
+    expect(screen.getByText("Collectible bonus").nextElementSibling).toHaveTextContent("0");
+    expect(screen.getByText("Precision bonus").nextElementSibling).toHaveTextContent("0");
+    expect(screen.getByText("Distance").nextElementSibling).toHaveTextContent("432 px");
+    expect(screen.getByText("Obstacles cleared").nextElementSibling).toHaveTextContent("3");
+    expect(screen.getByText("Feathers").nextElementSibling).toHaveTextContent("0");
+    expect(screen.getByText("Precision landings").nextElementSibling).toHaveTextContent("0");
+    expect(screen.getByText("Longest lift").nextElementSibling).toHaveTextContent("0.8s");
+    expect(screen.getByText("Ended by").nextElementSibling).toHaveTextContent("water");
     expect(screen.getByTestId("game-surface")).toHaveAttribute("aria-hidden", "true");
     expect(screen.getByRole("dialog", { name: "Nice flight" })).toHaveAttribute(
       "aria-modal",
@@ -1108,7 +1169,7 @@ describe("GameExperience local settings and statistics", () => {
     act(() =>
       runtime.emit({
         type: "ended",
-        value: { ...RUN_SUMMARY, runId: 99, score: 999 },
+        value: runSummaryWithScore(99, 999),
       }),
     );
     expect(new LocalGameDataStore(storage).read().data.statistics).toMatchObject({
@@ -1119,7 +1180,7 @@ describe("GameExperience local settings and statistics", () => {
     act(() =>
       runtime.emit({
         type: "ended",
-        value: { ...RUN_SUMMARY, reason: "quit", score: 999 },
+        value: { ...runSummaryWithScore(99, 999), reason: "quit" },
       }),
     );
     expect(new LocalGameDataStore(storage).read().data.statistics).toMatchObject({
@@ -1170,7 +1231,7 @@ describe("GameExperience local settings and statistics", () => {
     act(() =>
       firstRuntime.emit({
         type: "ended",
-        value: { ...RUN_SUMMARY, runId: 2, score: 50 },
+        value: runSummaryWithScore(2, 50),
       }),
     );
     await user.click(screen.getByRole("button", { name: "Quit to ready screen" }));
@@ -1181,7 +1242,7 @@ describe("GameExperience local settings and statistics", () => {
     act(() =>
       freshRuntime.emit({
         type: "ended",
-        value: { ...RUN_SUMMARY, runId: 1, score: 60 },
+        value: runSummaryWithScore(1, 60),
       }),
     );
 
@@ -1203,7 +1264,7 @@ describe("GameExperience local settings and statistics", () => {
     act(() =>
       firstRuntime.emit({
         type: "ended",
-        value: { ...RUN_SUMMARY, runId: 2, score: 50 },
+        value: runSummaryWithScore(2, 50),
       }),
     );
     await user.click(screen.getByRole("button", { name: "Accessibility & settings" }));
@@ -1217,7 +1278,7 @@ describe("GameExperience local settings and statistics", () => {
     act(() =>
       remountedRuntime.emit({
         type: "ended",
-        value: { ...RUN_SUMMARY, runId: 2, score: 60 },
+        value: runSummaryWithScore(2, 60),
       }),
     );
 

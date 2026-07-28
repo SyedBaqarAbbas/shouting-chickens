@@ -310,15 +310,21 @@ test("first run is keyboard reachable and fallback reaches pause, results, and r
   await page.keyboard.press("Space");
   await expect(surface).toHaveAttribute("data-simulation-phase", "dead");
   const completedRun = await surface.evaluate((element) => ({
+    collectibleScore: Number(element.getAttribute("data-collectible-score")),
     elapsedMs: Number(element.getAttribute("data-elapsed-ms")),
     generation: Number(element.getAttribute("data-run-generation")),
+    precisionScore: Number(element.getAttribute("data-precision-score")),
     restartToken: Number(element.getAttribute("data-restart-token")),
     score: Number(element.getAttribute("data-score")),
+    survivalScore: Number(element.getAttribute("data-survival-score")),
   }));
   expect(completedRun.elapsedMs).toBeGreaterThan(0);
   expect(completedRun.generation).toBeGreaterThan(0);
   expect(completedRun.restartToken).toBeGreaterThanOrEqual(0);
-  expect(completedRun.score).toBe(Math.floor(completedRun.elapsedMs / 100));
+  expect(completedRun.survivalScore).toBe(Math.floor(completedRun.elapsedMs / 100));
+  expect(completedRun.score).toBe(
+    completedRun.survivalScore + completedRun.collectibleScore + completedRun.precisionScore,
+  );
 
   await page.keyboard.press("Shift+Tab");
   await expect(page.getByRole("button", { name: "Accessibility & settings" })).toBeFocused();
@@ -333,11 +339,14 @@ test("first run is keyboard reachable and fallback reaches pause, results, and r
   await expect(surface).toHaveAttribute("data-simulation-phase", "running");
   const restartedRun = await surface.evaluate((element) => ({
     collisionId: element.getAttribute("data-collision-id"),
+    collectibleScore: Number(element.getAttribute("data-collectible-score")),
     deathReason: element.getAttribute("data-death-reason"),
     elapsedMs: Number(element.getAttribute("data-elapsed-ms")),
     loopsCompleted: Number(element.getAttribute("data-loops-completed")),
     phase: element.getAttribute("data-simulation-phase"),
+    precisionScore: Number(element.getAttribute("data-precision-score")),
     score: Number(element.getAttribute("data-score")),
+    survivalScore: Number(element.getAttribute("data-survival-score")),
   }));
   expect(restartedRun).toMatchObject({
     collisionId: "",
@@ -346,7 +355,10 @@ test("first run is keyboard reachable and fallback reaches pause, results, and r
     phase: "running",
   });
   expect(restartedRun.elapsedMs).toBeLessThan(completedRun.elapsedMs);
-  expect(restartedRun.score).toBe(Math.floor(restartedRun.elapsedMs / 100));
+  expect(restartedRun.survivalScore).toBe(Math.floor(restartedRun.elapsedMs / 100));
+  expect(restartedRun.score).toBe(
+    restartedRun.survivalScore + restartedRun.collectibleScore + restartedRun.precisionScore,
+  );
   expect(restartedRun.score).toBeLessThan(completedRun.score);
 });
 

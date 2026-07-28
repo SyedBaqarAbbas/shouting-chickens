@@ -11,6 +11,14 @@ import {
 } from "../content";
 import { SeededRandom } from "../core";
 import type { PlatformDefinition, SpikeHazardDefinition, WaterZoneDefinition } from "./course";
+import {
+  boundaryFitsDifficulty,
+  difficultyProfileForChunk,
+  difficultyProfileForLevel,
+  templateFitsDifficulty,
+  templateWeightForDifficulty,
+  type DifficultyProfile,
+} from "./DifficultyProgression";
 
 const DEFAULT_SLOT_COUNT = 6;
 const DEFAULT_RECYCLE_BEHIND_DISTANCE = 256;
@@ -87,6 +95,9 @@ export type GeneratedChunkPlacement = Readonly<{
   templateId: string;
   originX: number;
   width: number;
+  difficultyStage: DifficultyProfile["stage"];
+  difficulty: number;
+  worldSpeed: number;
   minimumDifficulty: number;
   maximumDifficulty: number;
   requiredCapability: TraversalCapability;
@@ -133,6 +144,7 @@ export type GeneratedChunkCourseOptions = Readonly<{
   recycleBehindDistance?: number;
   supportedCapabilities?: readonly TraversalCapability[];
   difficultyForChunk?: (chunkIndex: number) => number;
+  progressionForChunk?: (chunkIndex: number) => DifficultyProfile;
 }>;
 
 type MutableChunkPlacement = {
@@ -140,6 +152,8 @@ type MutableChunkPlacement = {
   chunkIndex: number;
   template: ChunkTemplate;
   originX: number;
+  progression: DifficultyProfile;
+  difficulty: number;
 };
 
 function validatePositiveSafeInteger(value: number, label: string) {
@@ -288,6 +302,8 @@ export class GeneratedChunkCourse {
   private readonly recycleBehindDistance: number;
   private readonly supportedCapabilities: readonly TraversalCapability[] | undefined;
   private readonly difficultyForChunk: (chunkIndex: number) => number;
+  private readonly progressionForChunk: (chunkIndex: number) => DifficultyProfile;
+  private readonly useDifficultySelectionPolicy: boolean;
   private readonly poolCapacitiesValue: GeneratedCoursePoolCapacities;
   private readonly placements: MutableChunkPlacement[] = [];
 
@@ -298,14 +314,24 @@ export class GeneratedChunkCourse {
   private cachedSnapshotTick = -1;
   private lastSimulationTick = 0;
   private motionSeed = "sho-16-preview:preview";
+  private lastSeed = "preview";
+  private lastGameplayVersion = "sho-16-preview";
 
   constructor(options: GeneratedChunkCourseOptions = {}) {
+    const usesCanonicalCatalog =
+      options.templates === undefined || options.templates === AUTHORED_CHUNK_TEMPLATES;
     this.templates = options.templates ?? AUTHORED_CHUNK_TEMPLATES;
     this.slotCount = options.slotCount ?? DEFAULT_SLOT_COUNT;
     this.repeatWindow = options.repeatWindow ?? 2;
     this.recycleBehindDistance = options.recycleBehindDistance ?? DEFAULT_RECYCLE_BEHIND_DISTANCE;
     this.supportedCapabilities = options.supportedCapabilities;
-    this.difficultyForChunk = options.difficultyForChunk ?? (() => 1);
+    this.progressionForChunk =
+      options.progressionForChunk ??
+      (usesCanonicalCatalog ? difficultyProfileForChunk : () => difficultyProfileForLevel(1));
+    this.difficultyForChunk =
+      options.difficultyForChunk ??
+      ((chunkIndex) => this.progressionForChunk(chunkIndex).difficulty);
+    this.useDifficultySelectionPolicy = usesCanonicalCatalog;
 
     validatePositiveSafeInteger(this.slotCount, "Chunk slot count");
     validateNonNegativeFinite(this.recycleBehindDistance, "Recycle-behind distance");
@@ -332,11 +358,25 @@ export class GeneratedChunkCourse {
       gameplayVersion,
       repeatWindow: this.repeatWindow,
       supportedCapabilities: this.supportedCapabilities,
+      templateEligible: this.useDifficultySelectionPolicy
+        ? (template, difficulty) =>
+            templateFitsDifficulty(template, difficultyProfileForLevel(difficulty))
+        : undefined,
+      templateWeight: this.useDifficultySelectionPolicy
+        ? (template, difficulty) =>
+            templateWeightForDifficulty(template, difficultyProfileForLevel(difficulty))
+        : undefined,
+      transitionEligible: this.useDifficultySelectionPolicy
+        ? (previous, next, difficulty) =>
+            boundaryFitsDifficulty(previous, next, difficultyProfileForLevel(difficulty))
+        : undefined,
     });
     this.placements.length = 0;
     this.recycledChunks = 0;
     this.lastSimulationTick = 0;
     this.motionSeed = `${gameplayVersion}:${seed}`;
+    this.lastSeed = seed;
+    this.lastGameplayVersion = gameplayVersion;
 
     let originX = 0;
     for (let slotId = 0; slotId < this.slotCount; slotId += 1) {
@@ -349,6 +389,10 @@ export class GeneratedChunkCourse {
     this.cachedSnapshot = null;
     this.cachedSnapshotTick = -1;
     return this.snapshot(0);
+  }
+
+  restart() {
+    return this.reset(this.lastSeed, this.lastGameplayVersion);
   }
 
   updateForFocus(focusWorldX: number, simulationTick = this.lastSimulationTick) {
@@ -413,6 +457,9 @@ export class GeneratedChunkCourse {
           templateId: placement.template.id,
           originX: placement.originX,
           width: placement.template.width,
+          difficultyStage: placement.progression.stage,
+          difficulty: placement.difficulty,
+          worldSpeed: placement.progression.worldSpeed,
           minimumDifficulty: placement.template.minimumDifficulty,
           maximumDifficulty: placement.template.maximumDifficulty,
           requiredCapability: placement.template.requiredCapability,
@@ -544,10 +591,22 @@ export class GeneratedChunkCourse {
       throw new RangeError("Generated chunk difficulty must be a positive safe integer");
     }
 
+    const progression = this.progressionForChunk(chunkIndex);
+    if (
+      !Number.isSafeInteger(progression.stage) ||
+      progression.stage < 1 ||
+      !Number.isFinite(progression.worldSpeed) ||
+      progression.worldSpeed <= 0
+    ) {
+      throw new RangeError("Generated chunk progression must have a valid stage and world speed");
+    }
+
     return {
       slotId,
       chunkIndex,
       originX,
+      difficulty,
+      progression,
       template: selector.next(difficulty),
     };
   }

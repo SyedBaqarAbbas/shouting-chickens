@@ -5,6 +5,7 @@ import type {
   RunSummary,
 } from "../../core/contracts";
 import { MemoryStorage } from "../../core/storage";
+import { calculateScoreBreakdown } from "../../game/Scoring";
 import { isCalibrationProfile } from "../../input/calibration";
 
 export const GAME_STORAGE_PREFIX = "shouting-chickens.";
@@ -273,11 +274,16 @@ export function withManualJumpThreshold(
 }
 
 export function isValidCompletedLocalRun(summary: RunSummary): boolean {
-  return (
+  const scoreBreakdown = summary.scoreBreakdown;
+  const statistics = summary.statistics;
+  if (!isRecord(scoreBreakdown) || !isRecord(statistics)) {
+    return false;
+  }
+
+  const validIdentityAndOutcome =
     summary.reason !== "quit" &&
     ["water", "hazard", "fall", "completed"].includes(summary.reason) &&
-    isNonNegativeFinite(summary.score) &&
-    Number.isInteger(summary.score) &&
+    isNonNegativeInteger(summary.score) &&
     isNonNegativeFinite(summary.survivalMs) &&
     isNonNegativeFinite(summary.distance) &&
     isNonNegativeInteger(summary.runId) &&
@@ -285,7 +291,32 @@ export function isValidCompletedLocalRun(summary: RunSummary): boolean {
     typeof summary.seed === "string" &&
     summary.seed.length > 0 &&
     typeof summary.gameplayVersion === "string" &&
-    summary.gameplayVersion.length > 0
+    summary.gameplayVersion.length > 0;
+  const validStatistics =
+    isNonNegativeFinite(statistics.distance) &&
+    isNonNegativeInteger(statistics.obstaclesCleared) &&
+    isNonNegativeInteger(statistics.collectibles) &&
+    isNonNegativeInteger(statistics.precisionLandings) &&
+    isNonNegativeFinite(statistics.longestLiftMs) &&
+    isNonNegativeInteger(statistics.highestDifficultyStage) &&
+    statistics.highestDifficultyStage > 0;
+  if (!validIdentityAndOutcome || !validStatistics) {
+    return false;
+  }
+
+  const expectedScore = calculateScoreBreakdown(
+    summary.survivalMs,
+    statistics.collectibles,
+    statistics.precisionLandings,
+  );
+
+  return (
+    statistics.distance === summary.distance &&
+    scoreBreakdown.survival === expectedScore.survival &&
+    scoreBreakdown.collectibles === expectedScore.collectibles &&
+    scoreBreakdown.precision === expectedScore.precision &&
+    scoreBreakdown.total === expectedScore.total &&
+    summary.score === expectedScore.total
   );
 }
 
@@ -432,7 +463,7 @@ function isNonNegativeFinite(value: unknown): value is number {
 }
 
 function isNonNegativeInteger(value: unknown): value is number {
-  return isNonNegativeFinite(value) && Number.isInteger(value);
+  return isNonNegativeFinite(value) && Number.isSafeInteger(value);
 }
 
 function booleanOr(value: unknown, fallback: boolean): boolean {

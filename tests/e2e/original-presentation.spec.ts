@@ -121,12 +121,16 @@ for (const viewport of [
       "data-chicken-art-frame",
       /chicken-(?:idle|run-a|run-b|jump|flap-a|flap-b|death)/,
     );
+    await expect(surface).toHaveAttribute(
+      "data-active-chunk-ids",
+      "spike-straight,lift-terraces,stepping-rise,precision-islands-intro,meadow-hop,quiet-tunnel-intro",
+    );
     await expect(surface).toHaveAttribute("data-rendered-warnings", /[1-9]\d*/);
     await expect(surface).toHaveAttribute("data-rendered-collectibles", /[1-9]\d*/);
-    await expect(surface).toHaveAttribute("data-rendered-moving-hazards", /[1-9]\d*/);
+    await expect(surface).toHaveAttribute("data-rendered-moving-hazards", "0");
     await expect(surface).toHaveAttribute(
       "data-active-warning-copy",
-      /↔ MOVING SPIKE.+↓ RELEASE.+↥ HOLD LIFT.+•• PULSE.+! SPIKES/,
+      /! SPIKES — PULSE.+↥ HOLD LIFT.+•• PULSE · RELEASE · PULSE.+↓ RELEASE · STAY QUIET/,
     );
 
     await expectWorldBandSnapshot(page, surface, `original-presentation-${viewport.name}.png`);
@@ -142,6 +146,10 @@ test("renders every original art role in the bounded text-only SVG atlas", async
 
   await expect(atlas).toHaveAttribute("viewBox", "0 0 1280 80");
   await expect(page.locator("svg > g")).toHaveCount(16);
+  const movingHazardFrame = page.locator('svg > g[transform="translate(720)"]');
+  await expect(movingHazardFrame).toHaveCount(1);
+  await expect(movingHazardFrame.locator("path")).toHaveCount(3);
+  await expect(movingHazardFrame.locator("circle")).toHaveCount(4);
   await expect(atlas).toHaveScreenshot("original-game-atlas.png", {
     animations: "disabled",
     maxDiffPixelRatio: 0.01,

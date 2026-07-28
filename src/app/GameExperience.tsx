@@ -776,7 +776,7 @@ export function GameExperience({
           second,
         };
         setLiveStatus(
-          `${event.value.phase}. ${second} seconds. Input ${band}. Score ${event.value.score}.`,
+          `${event.value.phase}. Stage ${event.value.difficultyStage}. ${second} seconds. Input ${band}. Lift stamina ${Math.round(event.value.liftStamina * 100)} percent. Score ${event.value.score}: ${event.value.scoreBreakdown.survival} survival, ${event.value.scoreBreakdown.collectibles} collectible, ${event.value.scoreBreakdown.precision} precision.`,
         );
       }
     },
@@ -1392,8 +1392,40 @@ export function GameExperience({
               <dd>{(summary.survivalMs / 1_000).toFixed(1)}s</dd>
             </div>
             <div>
-              <dt>Score</dt>
+              <dt>Total score</dt>
               <dd>{summary.score}</dd>
+            </div>
+            <div>
+              <dt>Survival points</dt>
+              <dd>{summary.scoreBreakdown.survival}</dd>
+            </div>
+            <div>
+              <dt>Collectible bonus</dt>
+              <dd>{summary.scoreBreakdown.collectibles}</dd>
+            </div>
+            <div>
+              <dt>Precision bonus</dt>
+              <dd>{summary.scoreBreakdown.precision}</dd>
+            </div>
+            <div>
+              <dt>Distance</dt>
+              <dd>{summary.statistics.distance.toFixed(0)} px</dd>
+            </div>
+            <div>
+              <dt>Obstacles cleared</dt>
+              <dd>{summary.statistics.obstaclesCleared}</dd>
+            </div>
+            <div>
+              <dt>Feathers</dt>
+              <dd>{summary.statistics.collectibles}</dd>
+            </div>
+            <div>
+              <dt>Precision landings</dt>
+              <dd>{summary.statistics.precisionLandings}</dd>
+            </div>
+            <div>
+              <dt>Longest lift</dt>
+              <dd>{(summary.statistics.longestLiftMs / 1_000).toFixed(1)}s</dd>
             </div>
             <div>
               <dt>Ended by</dt>

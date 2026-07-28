@@ -34,7 +34,21 @@ const COMPLETED_RUN: RunSummary = {
   reason: "water",
   runId: 1,
   score: 42,
+  scoreBreakdown: {
+    survival: 42,
+    collectibles: 0,
+    precision: 0,
+    total: 42,
+  },
   seed: "looping-course",
+  statistics: {
+    distance: 432,
+    obstaclesCleared: 3,
+    collectibles: 0,
+    precisionLandings: 0,
+    longestLiftMs: 800,
+    highestDifficultyStage: 2,
+  },
   survivalMs: 4_200,
 };
 
@@ -238,6 +252,16 @@ describe("LocalGameDataStore", () => {
         ...COMPLETED_RUN,
         distance: 200,
         score: 20,
+        scoreBreakdown: {
+          survival: 20,
+          collectibles: 0,
+          precision: 0,
+          total: 20,
+        },
+        statistics: {
+          ...COMPLETED_RUN.statistics,
+          distance: 200,
+        },
         survivalMs: 2_000,
       }),
     ).toMatchObject({
@@ -257,6 +281,29 @@ describe("LocalGameDataStore", () => {
       { ...COMPLETED_RUN, score: Number.NaN },
       { ...COMPLETED_RUN, survivalMs: -1 },
       { ...COMPLETED_RUN, seed: "" },
+      {
+        ...COMPLETED_RUN,
+        scoreBreakdown: { ...COMPLETED_RUN.scoreBreakdown, total: 43 },
+      },
+      {
+        ...COMPLETED_RUN,
+        scoreBreakdown: { ...COMPLETED_RUN.scoreBreakdown, collectibles: 25, total: 67 },
+      },
+      {
+        ...COMPLETED_RUN,
+        statistics: { ...COMPLETED_RUN.statistics, distance: 431 },
+      },
+      {
+        ...COMPLETED_RUN,
+        statistics: { ...COMPLETED_RUN.statistics, highestDifficultyStage: 0 },
+      },
+      {
+        ...COMPLETED_RUN,
+        statistics: {
+          ...COMPLETED_RUN.statistics,
+          collectibles: Number.MAX_SAFE_INTEGER + 1,
+        },
+      },
     ]) {
       expect(store.recordCompletedRun(invalid).recorded).toBe(false);
     }

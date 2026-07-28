@@ -17,11 +17,22 @@ const BASE_SNAPSHOT: SimulationSnapshot = {
   tick: 1,
   elapsedMs: 16,
   score: 0,
+  scoreBreakdown: {
+    survival: 0,
+    collectibles: 0,
+    precision: 0,
+    total: 0,
+  },
   distance: 0,
   courseDistance: 0,
   loopsCompleted: 0,
   currentChunkIndex: 0,
   currentChunkId: "test",
+  difficultyStage: 1,
+  difficulty: 1,
+  worldSpeed: 144,
+  liftStamina: 1,
+  effectiveLift: 0,
   chicken: {
     x: 112,
     y: 400,
@@ -34,6 +45,14 @@ const BASE_SNAPSHOT: SimulationSnapshot = {
   collisionId: null,
   landingCount: 0,
   collectedCollectibleIds: [],
+  statistics: {
+    distance: 0,
+    obstaclesCleared: 0,
+    collectibles: 0,
+    precisionLandings: 0,
+    longestLiftMs: 0,
+    highestDifficultyStage: 1,
+  },
 };
 
 describe("GameAudioDirector", () => {

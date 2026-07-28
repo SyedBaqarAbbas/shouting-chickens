@@ -162,6 +162,7 @@ class ChickenWorldScene extends Phaser.Scene {
   private renderFrame = 0;
   private impactFramesRemaining = 0;
   private lastChickenFrame: GameArtFrame = "chicken-idle";
+  private staminaLabel!: Phaser.GameObjects.Text;
 
   constructor(
     private readonly host: PhaserFrameHost,
@@ -387,10 +388,10 @@ class ChickenWorldScene extends Phaser.Scene {
 
   private createStatusLayer() {
     this.scoreLabel = this.add
-      .text(LOGICAL_GAME_WIDTH / 2, 244, "Survived 0.0s · 0", {
+      .text(LOGICAL_GAME_WIDTH / 2, 244, "Score 0 · S 0 + F 0 + P 0", {
         color: "#ffffff",
         fontFamily: "system-ui, sans-serif",
-        fontSize: "24px",
+        fontSize: "16px",
         fontStyle: "700",
       })
       .setOrigin(0.5)
@@ -475,6 +476,17 @@ class ChickenWorldScene extends Phaser.Scene {
       .setDepth(23)
       .setVisible(false);
 
+    this.staminaLabel = this.add
+      .text(LOGICAL_GAME_WIDTH / 2, 368, "LIFT STAMINA 100%", {
+        color: "#b9d8f4",
+        fontFamily: "system-ui, sans-serif",
+        fontSize: "11px",
+        fontStyle: "700",
+        letterSpacing: 1,
+      })
+      .setOrigin(0.5)
+      .setDepth(16);
+
     this.phaseShade = this.add
       .rectangle(
         LOGICAL_GAME_WIDTH / 2,
@@ -520,14 +532,14 @@ class ChickenWorldScene extends Phaser.Scene {
     this.chicken.setPosition(snapshot.chicken.x, snapshot.chicken.y + runBob);
     this.applyChickenPose(animation, snapshot.tick, presentation.reducedMotion);
     this.scoreLabel.setText(
-      `Survived ${(snapshot.elapsedMs / 1_000).toFixed(1)}s · ${snapshot.score}`,
+      `Score ${snapshot.score} · S ${snapshot.scoreBreakdown.survival} + F ${snapshot.scoreBreakdown.collectibles} + P ${snapshot.scoreBreakdown.precision}`,
     );
     this.courseLabel.setText(
       snapshot.currentChunkId
-        ? `CHUNK ${snapshot.currentChunkIndex + 1} · ${snapshot.currentChunkId
+        ? `STAGE ${snapshot.difficultyStage} · CHUNK ${snapshot.currentChunkIndex + 1} · ${snapshot.currentChunkId
             .replaceAll("-", " ")
             .toUpperCase()}`
-        : `Loop ${snapshot.loopsCompleted + 1}`,
+        : `STAGE ${snapshot.difficultyStage} · Loop ${snapshot.loopsCompleted + 1}`,
     );
     this.inputMeterFill.displayWidth = 198 * hud.normalizedInput;
     this.inputLevelLabel.setText(`INPUT ${Math.round(hud.normalizedInput * 100)}%`);
@@ -542,6 +554,9 @@ class ChickenWorldScene extends Phaser.Scene {
           : hud.configuredInput === "voice"
             ? "READY: MICROPHONE + FALLBACK"
             : "READY: KEYBOARD + TOUCH",
+    );
+    this.staminaLabel.setText(
+      `LIFT STAMINA ${Math.round(snapshot.liftStamina * 100)}% · ${snapshot.worldSpeed.toFixed(0)} PX/S`,
     );
 
     const deathHeading =

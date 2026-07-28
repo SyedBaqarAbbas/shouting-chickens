@@ -435,8 +435,10 @@ describe("PhaserGameRuntime", () => {
         seed: RUN_OPTIONS.seed,
         gameplayVersion: RUN_OPTIONS.gameplayVersion,
         score: runtime.snapshot().score,
+        scoreBreakdown: runtime.snapshot().scoreBreakdown,
         survivalMs: runtime.snapshot().elapsedMs,
         distance: runtime.snapshot().distance,
+        statistics: runtime.snapshot().statistics,
         reason: "water",
       },
     });
@@ -664,8 +666,10 @@ describe("PhaserGameRuntime", () => {
           seed: RUN_OPTIONS.seed,
           gameplayVersion: RUN_OPTIONS.gameplayVersion,
           score: frozen.score,
+          scoreBreakdown: frozen.scoreBreakdown,
           survivalMs: frozen.elapsedMs,
           distance: frozen.distance,
+          statistics: frozen.statistics,
           reason,
         },
       });
@@ -717,5 +721,108 @@ describe("PhaserGameRuntime", () => {
     expect(coarse).toEqual(fine);
     expect(coarse.landingCount).toBe(1);
     expect(coarse.tick).toBe(60);
+  });
+
+  it("restarts the same instance with deterministic public summaries and complete progression reset", async () => {
+    const runtime = new PhaserGameRuntime({
+      phaserFactory: () => ({
+        game: { destroy: vi.fn() },
+        ready: Promise.resolve(),
+      }),
+      inputSourceFactory: () => new LifecycleInput(),
+      renderResolution: 1,
+      clock: new ManualClock(),
+    });
+    const events: GameEvent[] = [];
+    const container = document.createElement("div");
+    runtime.subscribe((event) => events.push(event));
+    await runtime.mount(container);
+
+    const finishRun = () => {
+      for (let tick = 0; tick < 1_000 && runtime.snapshot().phase === "running"; tick += 1) {
+        runtime.advanceFrame(FIXED_STEP_MS);
+      }
+      expect(runtime.snapshot().phase).toBe("dead");
+      return events.filter((event) => event.type === "ended").at(-1)!.value;
+    };
+
+    runtime.startRun(RUN_OPTIONS);
+    const initialSnapshot = runtime.snapshot();
+    const initialChunks = runtime.courseSnapshot()!.chunks.map((chunk) => ({
+      chunkIndex: chunk.chunkIndex,
+      difficulty: chunk.difficulty,
+      difficultyStage: chunk.difficultyStage,
+      templateId: chunk.templateId,
+      worldSpeed: chunk.worldSpeed,
+    }));
+    const first = finishRun();
+
+    runtime.restart();
+    expect(runtime.snapshot()).toEqual(initialSnapshot);
+    expect(runtime.snapshot()).toMatchObject({
+      phase: "running",
+      tick: 0,
+      elapsedMs: 0,
+      score: 0,
+      scoreBreakdown: {
+        survival: 0,
+        collectibles: 0,
+        precision: 0,
+        total: 0,
+      },
+      liftStamina: 1,
+      effectiveLift: 0,
+      difficultyStage: 1,
+      difficulty: 1,
+      worldSpeed: 144,
+      statistics: {
+        distance: 0,
+        obstaclesCleared: 0,
+        collectibles: 0,
+        precisionLandings: 0,
+        longestLiftMs: 0,
+        highestDifficultyStage: 1,
+      },
+    });
+    expect(container.dataset).toMatchObject({
+      survivalScore: "0",
+      collectibleScore: "0",
+      precisionScore: "0",
+      liftStamina: "1.000",
+      effectiveLift: "0.000",
+      difficultyStage: "1",
+      worldSpeed: "144.000",
+      obstaclesCleared: "0",
+      precisionLandings: "0",
+      longestLiftMs: "0",
+    });
+    expect(
+      runtime.courseSnapshot()!.chunks.map((chunk) => ({
+        chunkIndex: chunk.chunkIndex,
+        difficulty: chunk.difficulty,
+        difficultyStage: chunk.difficultyStage,
+        templateId: chunk.templateId,
+        worldSpeed: chunk.worldSpeed,
+      })),
+    ).toEqual(initialChunks);
+
+    const second = finishRun();
+    const { runId: firstRunId, ...firstPublicResult } = first;
+    const { runId: secondRunId, ...secondPublicResult } = second;
+
+    expect([firstRunId, secondRunId]).toEqual([1, 2]);
+    expect(secondPublicResult).toEqual(firstPublicResult);
+    expect(second.score).toBe(second.scoreBreakdown.total);
+    expect(second.statistics.distance).toBe(second.distance);
+    expect(second.statistics.obstaclesCleared).toBe(0);
+    expect(Object.keys(second.statistics).sort()).toEqual([
+      "collectibles",
+      "distance",
+      "highestDifficultyStage",
+      "longestLiftMs",
+      "obstaclesCleared",
+      "precisionLandings",
+    ]);
+    runtime.destroy();
   });
 });

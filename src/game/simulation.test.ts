@@ -1,12 +1,18 @@
 import { describe, expect, it } from "vitest";
 
 import type { ControlIntent } from "../core";
+import type { ChunkTemplate } from "../content";
+import { difficultyProfileForChunk } from "./DifficultyProgression";
 import { FixedStepRunner } from "./FixedStepRunner";
+import { GeneratedChunkCourse } from "./GeneratedChunkCourse";
+import { LIFT_STAMINA_RECOVERY_PER_SECOND } from "./LiftStamina";
+import { PRECISION_LANDING_SCORE } from "./Scoring";
 import {
   ChickenSimulation,
   FIXED_STEP_MS,
   FIXED_WORLD_SPEED,
   type PlatformDefinition,
+  type SimulationSnapshot,
 } from "./simulation";
 import { DEFAULT_PLAYER_CONTROLLER_TUNING } from "./FixedStepPlayerController";
 
@@ -19,6 +25,58 @@ const NEUTRAL_INTENT: ControlIntent = {
 const ENDLESS_PLATFORM: readonly PlatformDefinition[] = [
   { id: "endless", x: -500, width: 10_000, top: 584 },
 ];
+
+function quietTunnelTemplate(x = 300, top = 500): ChunkTemplate {
+  return {
+    id: "stamina-tunnel",
+    width: 900,
+    minimumDifficulty: 1,
+    maximumDifficulty: 5,
+    challengeStage: "introduction",
+    mechanics: [],
+    requiresIntroductions: [],
+    voiceSkills: [],
+    entry: { platformId: "runway" },
+    exit: { platformId: "runway" },
+    requiredCapability: "run",
+    platforms: [{ id: "runway", x: 0, width: 900, top: 584 }],
+    hazards: [
+      {
+        id: "tunnel",
+        kind: "quiet-zone",
+        x,
+        width: 240,
+        top,
+        bottom: 584,
+        maximumLift: 0.05,
+      },
+    ],
+    collectibles: [],
+    warnings: [],
+    route: [
+      {
+        fromPlatformId: "runway",
+        toPlatformId: "runway",
+        requiredCapability: "run",
+      },
+    ],
+  };
+}
+
+function generatedTunnelCourse(
+  template = quietTunnelTemplate(),
+  difficultyForChunk?: (chunkIndex: number) => number,
+) {
+  const course = new GeneratedChunkCourse({
+    templates: [template],
+    slotCount: 7,
+    repeatWindow: 0,
+    difficultyForChunk,
+    progressionForChunk: difficultyForChunk ? difficultyProfileForChunk : undefined,
+  });
+  course.reset("stamina-ceiling", "sho-17-test");
+  return course;
+}
 
 function runTrace() {
   const simulation = new ChickenSimulation({ platforms: ENDLESS_PLATFORM });
@@ -110,6 +168,250 @@ describe("ChickenSimulation", () => {
     expect(descendedWhileHeld).toBe(true);
     expect(simulation.snapshot().chicken.grounded).toBe(true);
     expect(simulation.snapshot().phase).toBe("running");
+  });
+
+  it("drains airborne lift to empty, suppresses effective lift, and recovers on release", () => {
+    const simulation = new ChickenSimulation({
+      platforms: ENDLESS_PLATFORM,
+      playerTuning: {
+        gravityPerSecond: 1,
+        jumpVelocity: -100,
+        liftAccelerationPerSecond: 0,
+        maximumRiseVelocity: -200,
+        maximumFallVelocity: 720,
+      },
+    });
+    simulation.start();
+    simulation.step({ ...NEUTRAL_INTENT, jumpPressed: true, lift: 1 });
+
+    for (let tick = 0; tick < 180; tick += 1) {
+      simulation.step({ ...NEUTRAL_INTENT, lift: 1 });
+    }
+
+    expect(simulation.snapshot()).toMatchObject({
+      phase: "running",
+      liftStamina: 0,
+      effectiveLift: 0,
+      statistics: {
+        longestLiftMs: 2_500,
+      },
+    });
+
+    for (let tick = 0; tick < 60; tick += 1) {
+      simulation.step(NEUTRAL_INTENT);
+    }
+    expect(simulation.snapshot().liftStamina).toBeCloseTo(LIFT_STAMINA_RECOVERY_PER_SECOND, 8);
+  });
+
+  it("rejects raw held input in a quiet zone after effective stamina lift is depleted", () => {
+    const simulation = new ChickenSimulation({
+      generatedCourse: generatedTunnelCourse(quietTunnelTemplate(650, 0)),
+      playerTuning: {
+        gravityPerSecond: 1,
+        jumpVelocity: -100,
+        liftAccelerationPerSecond: 0,
+        maximumRiseVelocity: -200,
+        maximumFallVelocity: 720,
+      },
+    });
+    simulation.start();
+    simulation.step({ ...NEUTRAL_INTENT, jumpPressed: true, lift: 1 });
+
+    for (let tick = 0; tick < 400 && simulation.snapshot().phase === "running"; tick += 1) {
+      simulation.step({ ...NEUTRAL_INTENT, lift: 1 });
+    }
+
+    expect(simulation.snapshot()).toMatchObject({
+      phase: "dead",
+      deathReason: "hazard",
+      collisionId: "0:stamina-tunnel:tunnel",
+      liftStamina: 0,
+      effectiveLift: 0,
+    });
+    expect(simulation.drainInteractionEvents()).toContainEqual({
+      type: "hazard-collision",
+      value: {
+        id: "0:stamina-tunnel:tunnel",
+        kind: "quiet-zone",
+        tick: expect.any(Number),
+      },
+    });
+  });
+
+  it("keeps grounded tunnel traversal safe and diagnoses released ceiling impacts distinctly", () => {
+    const safe = new ChickenSimulation({
+      generatedCourse: generatedTunnelCourse(),
+    });
+    safe.start();
+    for (let tick = 0; tick < 360; tick += 1) {
+      safe.step(NEUTRAL_INTENT);
+    }
+    expect(safe.snapshot().phase).toBe("running");
+    expect(safe.drainInteractionEvents()).toEqual([]);
+
+    const replayedOutcomes: Array<
+      Pick<
+        SimulationSnapshot,
+        "tick" | "collisionId" | "deathReason" | "difficultyStage" | "scoreBreakdown" | "statistics"
+      >
+    > = [];
+    const course = generatedTunnelCourse(
+      quietTunnelTemplate(),
+      (chunkIndex) => difficultyProfileForChunk(chunkIndex).difficulty,
+    );
+    const simulation = new ChickenSimulation({ generatedCourse: course });
+
+    for (let run = 0; run < 2; run += 1) {
+      if (run > 0) {
+        simulation.reset();
+      }
+      simulation.start();
+      let jumpStarted = false;
+
+      for (let tick = 0; tick < 5_000 && simulation.snapshot().phase === "running"; tick += 1) {
+        const before = simulation.snapshot();
+        const placement = course
+          .snapshot(before.tick)
+          .chunks.find((chunk) => chunk.chunkIndex === 6);
+        const worldX = before.distance + 112;
+        const jumpAt = placement ? placement.originX + 120 : Number.POSITIVE_INFINITY;
+        const releaseAt = placement ? placement.originX + 240 : Number.POSITIVE_INFINITY;
+        const jumpPressed = !jumpStarted && worldX >= jumpAt;
+
+        if (jumpPressed) {
+          jumpStarted = true;
+        }
+        simulation.step({
+          atMs: before.elapsedMs + FIXED_STEP_MS,
+          jumpPressed,
+          lift: jumpStarted && worldX < releaseAt ? 1 : 0,
+        });
+      }
+
+      const outcome = simulation.snapshot();
+      replayedOutcomes.push({
+        tick: outcome.tick,
+        collisionId: outcome.collisionId,
+        deathReason: outcome.deathReason,
+        difficultyStage: outcome.difficultyStage,
+        scoreBreakdown: outcome.scoreBreakdown,
+        statistics: outcome.statistics,
+      });
+      expect(simulation.drainInteractionEvents()).toContainEqual({
+        type: "hazard-collision",
+        value: {
+          id: "6:stamina-tunnel:tunnel:ceiling",
+          kind: "ceiling",
+          tick: outcome.tick,
+        },
+      });
+    }
+
+    expect(replayedOutcomes[0]).toEqual(replayedOutcomes[1]);
+    expect(replayedOutcomes[0]).toMatchObject({
+      collisionId: "6:stamina-tunnel:tunnel:ceiling",
+      deathReason: "hazard",
+      difficultyStage: 2,
+    });
+  });
+
+  it("counts a safely cleared obstacle once and resets its deterministic replay", () => {
+    const course = generatedTunnelCourse(quietTunnelTemplate(300, 0));
+    const simulation = new ChickenSimulation({ generatedCourse: course });
+
+    const runTrace = () => {
+      simulation.start();
+      for (let tick = 0; tick < 240; tick += 1) {
+        simulation.step(NEUTRAL_INTENT);
+      }
+
+      const cleared = simulation.snapshot();
+      expect(cleared).toMatchObject({
+        phase: "running",
+        statistics: {
+          obstaclesCleared: 1,
+        },
+      });
+
+      for (let tick = 0; tick < 30; tick += 1) {
+        simulation.step(NEUTRAL_INTENT);
+      }
+      expect(simulation.snapshot().statistics.obstaclesCleared).toBe(1);
+
+      const replay = simulation.snapshot();
+      return {
+        tick: replay.tick,
+        distance: replay.distance,
+        scoreBreakdown: replay.scoreBreakdown,
+        statistics: replay.statistics,
+      };
+    };
+
+    const first = runTrace();
+    expect(simulation.reset()).toMatchObject({
+      tick: 0,
+      distance: 0,
+      scoreBreakdown: {
+        survival: 0,
+        collectibles: 0,
+        precision: 0,
+        total: 0,
+      },
+      statistics: {
+        distance: 0,
+        obstaclesCleared: 0,
+        collectibles: 0,
+        precisionLandings: 0,
+        longestLiftMs: 0,
+        highestDifficultyStage: 1,
+      },
+    });
+    expect(runTrace()).toEqual(first);
+  });
+
+  it("awards one precision bonus per narrow platform and resets its replay", () => {
+    const simulation = new ChickenSimulation({
+      platforms: [{ id: "precision-platform", x: 0, width: 200, top: 584 }],
+      worldSpeed: 1,
+    });
+
+    const runTrace = () => {
+      simulation.start();
+
+      for (let jump = 0; jump < 2; jump += 1) {
+        const landingCount = simulation.snapshot().landingCount;
+        simulation.step({ ...NEUTRAL_INTENT, jumpPressed: true });
+        for (
+          let tick = 0;
+          tick < 240 && simulation.snapshot().landingCount === landingCount;
+          tick += 1
+        ) {
+          simulation.step(NEUTRAL_INTENT);
+        }
+        expect(simulation.snapshot().landingCount).toBe(landingCount + 1);
+      }
+
+      const replay = simulation.snapshot();
+      expect(replay.statistics.precisionLandings).toBe(1);
+      expect(replay.scoreBreakdown.precision).toBe(PRECISION_LANDING_SCORE);
+      expect(replay.score).toBe(replay.scoreBreakdown.total);
+      return {
+        tick: replay.tick,
+        distance: replay.distance,
+        scoreBreakdown: replay.scoreBreakdown,
+        statistics: replay.statistics,
+      };
+    };
+
+    const first = runTrace();
+    expect(simulation.reset()).toMatchObject({
+      landingCount: 0,
+      score: 0,
+      statistics: {
+        precisionLandings: 0,
+      },
+    });
+    expect(runTrace()).toEqual(first);
   });
 
   it("does not retrigger a held jump edge after landing", () => {
