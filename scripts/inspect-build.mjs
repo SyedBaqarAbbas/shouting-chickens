@@ -14,10 +14,13 @@ import {
   validateReleaseIdentity,
 } from "./release-files.mjs";
 
+const ORIGINAL_GAME_ATLAS_FILE = "assets/shouting-chickens-atlas.svg";
+const ORIGINAL_GAME_ATLAS_BUDGET_BYTES = 24 * 1_024;
 const ALLOWED_FILES = new Set([
   ".nojekyll",
   "404.html",
   "artifact-manifest.json",
+  ORIGINAL_GAME_ATLAS_FILE,
   "audio/voice-rms-processor.js",
   "favicon.svg",
   "icons/app-icon-180.png",
@@ -41,6 +44,7 @@ const PWA_ICON_SPECS = new Map([
   ["icons/app-icon-maskable-512.png", 512],
 ]);
 const PWA_PUBLIC_SOURCES = [
+  ORIGINAL_GAME_ATLAS_FILE,
   "audio/voice-rms-processor.js",
   "favicon.svg",
   ...PWA_ICON_SPECS.keys(),
@@ -158,6 +162,19 @@ for (const file of files) {
   }
   assertTextArtifact(file, bytes);
   const text = bytes.toString("utf8");
+  if (file === ORIGINAL_GAME_ATLAS_FILE) {
+    if (bytes.byteLength > ORIGINAL_GAME_ATLAS_BUDGET_BYTES) {
+      throw new Error(
+        `Original game atlas exceeds ${ORIGINAL_GAME_ATLAS_BUDGET_BYTES} bytes: ${bytes.byteLength}`,
+      );
+    }
+    if (
+      !text.includes('viewBox="0 0 1280 80"') ||
+      /<image\b|data:image|tiktok|watermark/i.test(text)
+    ) {
+      throw new Error("Original game atlas is malformed or contains an embedded/copied payload");
+    }
+  }
   if (/data:(?:audio|video)\//i.test(text)) {
     throw new Error(`Embedded media payload found in production artifact: ${file}`);
   }

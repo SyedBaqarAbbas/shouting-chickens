@@ -20,6 +20,7 @@ describe("PWA release generation", () => {
     expect(release.cacheName).toBe(`shouting-chickens-shell-1.2.3-${"a".repeat(40)}`);
     expect(release.assets[0]).toBe("./");
     expect(release.assets).toContain("./assets/a.css");
+    expect(release.assets).toContain("./assets/shouting-chickens-atlas.svg");
     expect(release.assets).toContain("./audio/voice-rms-processor.js");
     expect(release.assets).toContain("./manifest.webmanifest");
     expect(release.assets).not.toContain("./artifact-manifest.json");

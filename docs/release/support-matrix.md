@@ -40,6 +40,10 @@ SHO-20 owns the broader automated cross-browser and performance matrix.
   exposed but unavailable.
 - The Phaser bundle is intentionally unoptimized for the MVP and currently produces a Vite
   large-chunk warning. Bundle/performance budgets are expanded in SHO-20.
+- Original game cues are bounded by a deterministic low-output feedback model, but speaker-to-mic
+  loopback remains a required physical iOS Safari and Android Chrome release check. The procedure
+  and asset register are in `docs/assets/original-art-and-audio.md`; automation is not physical
+  device evidence.
 
 ## Reporting a compatibility issue
 

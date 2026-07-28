@@ -34,6 +34,7 @@ if (
 
 export default defineConfig({
   testDir,
+  snapshotPathTemplate: "{testDir}/{testFilePath}-snapshots/{arg}{ext}",
   fullyParallel: suite !== "soak",
   forbidOnly: Boolean(process.env.CI),
   retries: suite === "soak" || suite === "release" ? 0 : process.env.CI ? 2 : 0,

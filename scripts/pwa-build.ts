@@ -3,6 +3,7 @@ export const SERVICE_WORKER_FILE = "service-worker.js";
 export const PAGES_FALLBACK_FILE = "404.html";
 
 export const PWA_PUBLIC_SOURCES = Object.freeze([
+  "assets/shouting-chickens-atlas.svg",
   "audio/voice-rms-processor.js",
   "favicon.svg",
   "icons/app-icon-180.png",

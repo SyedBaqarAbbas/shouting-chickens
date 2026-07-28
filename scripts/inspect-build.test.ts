@@ -23,7 +23,7 @@ describe("release artifact inspection", () => {
 
     const inspection = runScript("inspect-build.mjs", root);
     expect(inspection.status, inspection.stderr).toBe(0);
-    expect(inspection.stdout).toContain(`Inspected 18 production files for ${VERSION}`);
+    expect(inspection.stdout).toContain(`Inspected 19 production files for ${VERSION}`);
   });
 
   it("rejects payload tampering after the artifact is sealed", async () => {
@@ -37,6 +37,21 @@ describe("release artifact inspection", () => {
   });
 
   for (const scenario of [
+    {
+      name: "embedded payloads in the original game atlas",
+      file: "assets/shouting-chickens-atlas.svg",
+      content:
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 80"><image href="data:image/png;base64,AAAA"/></svg>',
+      error: "Original game atlas is malformed or contains an embedded/copied payload",
+    },
+    {
+      name: "an original game atlas over its load budget",
+      file: "assets/shouting-chickens-atlas.svg",
+      content: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 80">${" ".repeat(
+        24 * 1_024,
+      )}</svg>`,
+      error: "Original game atlas exceeds 24576 bytes",
+    },
     {
       name: "test-report paths",
       file: "test-results/results.json",
@@ -247,6 +262,8 @@ async function createFixture(overrides: Record<string, string | Buffer> = {}) {
     ".nojekyll": "GitHub Pages marker\n",
     "404.html":
       '<!doctype html><a href="/shouting-chickens/">Open</a><script>location.replace("/shouting-chickens/")</script>\n',
+    "assets/shouting-chickens-atlas.svg":
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 80"></svg>\n',
     "audio/voice-rms-processor.js": 'registerProcessor("voice-rms-processor", class {});\n',
     "favicon.svg": '<svg xmlns="http://www.w3.org/2000/svg"></svg>\n',
     "icons/app-icon-180.png": pngHeader(180),
@@ -319,6 +336,7 @@ function installManifest() {
 function pwaRelease() {
   const assets = [
     "assets/index.js",
+    "assets/shouting-chickens-atlas.svg",
     "audio/voice-rms-processor.js",
     "favicon.svg",
     "icons/app-icon-180.png",

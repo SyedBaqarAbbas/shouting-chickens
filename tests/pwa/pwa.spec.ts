@@ -57,6 +57,7 @@ test("the installed shell has valid metadata and starts a fresh local run with t
     };
   });
   expect(cachedUrls.actual).toEqual(cachedUrls.expected);
+  expect(cachedUrls.actual).toContain(new URL("assets/shouting-chickens-atlas.svg", baseUrl).href);
   expect(cachedUrls.actual.some((url) => /(?:replays?|reports?|\/api\/)/i.test(url))).toBe(false);
 
   await page.close();
