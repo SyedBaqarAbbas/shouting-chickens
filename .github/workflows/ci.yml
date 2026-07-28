@@ -1,4 +1,4 @@
-name: CI and MVP release
+name: CI and installable PWA release
 
 on:
   push:
@@ -34,7 +34,7 @@ concurrency:
 
 jobs:
   quality:
-    name: Test and seal MVP artifact
+    name: Test and seal installable PWA artifact
     runs-on: ubuntu-latest
     timeout-minutes: 40
     outputs:
@@ -48,6 +48,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
 
       - name: Set up pinned Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -79,6 +81,10 @@ jobs:
         run: |
           if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
             echo "Publishing is allowed only from main." >&2
+            exit 1
+          fi
+          if [[ "$(git rev-parse refs/remotes/origin/main)" != "$GITHUB_SHA" ]]; then
+            echo "Publishing requires the selected commit to be the current main tip." >&2
             exit 1
           fi
           for evidence_url in "$IOS_EVIDENCE_URL" "$ANDROID_EVIDENCE_URL"; do
@@ -123,6 +129,9 @@ jobs:
       - name: Run sealed Pages-subpath acceptance suite
         run: npm run test:e2e:production
 
+      - name: Run installability, offline, and deferred-update browser suite
+        run: npm run test:e2e:pwa
+
       - name: Run Lighthouse smoke
         run: npm run test:lighthouse
 
@@ -148,7 +157,7 @@ jobs:
           fi
           echo "sha256=$ARTIFACT_SHA" >> "$GITHUB_OUTPUT"
           {
-            echo "### Sealed MVP artifact"
+            echo "### Sealed installable PWA artifact"
             echo
             echo "- Version: \`$APP_VERSION\`"
             echo "- Commit: \`$COMMIT_SHA\`"

@@ -57,6 +57,8 @@ export interface GameExperienceProps {
     profile: CalibrationProfile,
   ) => VoiceInput;
   readonly landscape: boolean;
+  readonly onPwaUpdateHostChange?: (host: HTMLElement | null) => void;
+  readonly onRunActivityChange?: (active: boolean) => void;
   readonly session: BrowserMediaSession;
   readonly storage?: KeyValueStorage;
 }
@@ -109,6 +111,8 @@ export function GameExperience({
   createVoiceInput = (session, profile) =>
     new BrowserVoiceInputSource(session, new SystemClock(), profile),
   landscape,
+  onPwaUpdateHostChange,
+  onRunActivityChange,
   session,
   storage,
 }: GameExperienceProps) {
@@ -206,6 +210,15 @@ export function GameExperience({
     calibrationRef.current = calibration;
     voiceInputRef.current = voiceInput;
   }, [calibration, voiceInput]);
+
+  const runActive =
+    screen === "countdown" ||
+    screen === "playing" ||
+    (screen === "settings" && settingsReturnScreen === "playing");
+
+  useEffect(() => {
+    onRunActivityChange?.(runActive);
+  }, [onRunActivityChange, runActive]);
 
   useEffect(() => {
     mounted.current = true;
@@ -1026,6 +1039,7 @@ export function GameExperience({
       className="experience-root"
       data-muted={localData.settings.muted ? "true" : "false"}
       data-reduced-motion={localData.settings.reducedMotion ? "true" : "false"}
+      data-run-active={runActive ? "true" : "false"}
       data-screen-shake-enabled={localData.settings.screenShakeEnabled ? "true" : "false"}
     >
       <CameraComposition
@@ -1401,6 +1415,7 @@ export function GameExperience({
               Accessibility &amp; settings
             </button>
           </div>
+          <div className="pwa-update-slot" ref={onPwaUpdateHostChange} />
         </section>
       ) : null}
 
@@ -1413,6 +1428,7 @@ export function GameExperience({
           onRecalibrate={recalibrate}
           onReset={resetLocalData}
           onThresholdChange={changeManualThreshold}
+          onUpdateHostChange={onPwaUpdateHostChange}
           runActive={settingsReturnScreen === "playing"}
         />
       ) : null}
@@ -1498,6 +1514,7 @@ interface SettingsPanelProps {
   readonly onRecalibrate: () => void;
   readonly onReset: () => void;
   readonly onThresholdChange: (threshold: number) => void;
+  readonly onUpdateHostChange?: (host: HTMLElement | null) => void;
   readonly runActive: boolean;
 }
 
@@ -1509,6 +1526,7 @@ function SettingsPanel({
   onRecalibrate,
   onReset,
   onThresholdChange,
+  onUpdateHostChange,
   runActive,
 }: SettingsPanelProps) {
   const [confirmingReset, setConfirmingReset] = useState(false);
@@ -1683,6 +1701,7 @@ function SettingsPanel({
       <button type="button" className="primary-action" onClick={onClose}>
         {runActive ? "Return to paused run" : "Close settings"}
       </button>
+      <div className="pwa-update-slot" ref={onUpdateHostChange} />
     </section>
   );
 }

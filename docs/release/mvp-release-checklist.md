@@ -34,6 +34,7 @@ npm run test
 APP_VERSION=0.1.0 COMMIT_SHA=<full-sha> npm run build
 npm run test:e2e
 APP_VERSION=0.1.0 COMMIT_SHA=<full-sha> npm run test:e2e:production
+APP_VERSION=0.1.0 COMMIT_SHA=<full-sha> npm run test:e2e:pwa
 npm run test:lighthouse
 npm run test:soak
 git diff --check
@@ -80,6 +81,11 @@ Verify every item:
 - [ ] Rotate to landscape and back; confirm pause, readable guidance, and resume.
 - [ ] Reach collision/results, verify score/survival, restart, and verify a clean run.
 - [ ] Open Privacy and Support and return to the game.
+- [ ] Add the release to the Home Screen, close the browser tab, launch the installed app, then
+      enable airplane mode and complete a keyboard/touch run from a fresh installed-app launch.
+- [ ] With the device online again, leave an older release open, publish the tested candidate, and
+      confirm its update waits through an active run, appears afterward, and reloads only after
+      explicit confirmation.
 - [ ] Close the tab and confirm browser microphone/camera indicators stop.
 
 ## Physical Android Chrome
@@ -96,7 +102,7 @@ Status at repository handoff: **not run**. Complete on a real Android phone in s
 | Limitation/issue links   |       |
 | Tester and UTC timestamp |       |
 
-Run the same twelve checks listed for iOS Safari. Record Android-specific permission wording,
+Run the same fourteen checks listed for iOS Safari. Record Android-specific permission wording,
 audio-routing behavior, and any vendor battery/background restrictions.
 
 ## Settings and accessibility release review

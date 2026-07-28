@@ -24,6 +24,7 @@ test("the sealed Pages-subpath artifact exposes release, privacy, and support id
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("./");
+  const appBaseUrl = new URL("./", page.url());
 
   const release = page.locator(".site-release");
   await expect(release).toContainText(`Version ${expectedVersion}`);
@@ -39,7 +40,7 @@ test("the sealed Pages-subpath artifact exposes release, privacy, and support id
   });
 
   await page.getByRole("link", { name: "Privacy" }).click();
-  await expect(page).toHaveURL(/\/shouting-chickens\/privacy\/$/);
+  await expect(page).toHaveURL(new URL("privacy/", appBaseUrl).href);
   await expect(page.getByRole("heading", { name: "Privacy" })).toBeVisible();
   await expect(page.getByText(/does not perform speech recognition/i)).toBeVisible();
   await expect(page.getByRole("link", { name: "Release identity" })).toHaveAttribute(
@@ -48,11 +49,11 @@ test("the sealed Pages-subpath artifact exposes release, privacy, and support id
   );
 
   await page.getByRole("link", { name: "Back to Shouting Chickens" }).click();
-  await expect(page).toHaveURL(/\/shouting-chickens\/$/);
+  await expect(page).toHaveURL(appBaseUrl.href);
   await page.getByRole("link", { name: "Support" }).click();
-  await expect(page).toHaveURL(/\/shouting-chickens\/support\/$/);
+  await expect(page).toHaveURL(new URL("support/", appBaseUrl).href);
   await expect(page.getByRole("heading", { name: "Support" })).toBeVisible();
-  await expect(page.getByText(/not yet installable/i)).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Install and offline play" })).toBeVisible();
 
   expect(failedResponses).toEqual([]);
 });
@@ -71,6 +72,7 @@ test("real media adapters calibrate voice, drive jump and lift, recover, collide
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("./");
+  const expectedWorkletUrl = new URL("audio/voice-rms-processor.js", page.url());
   await page.getByRole("button", { name: "Enable microphone" }).click();
   await expect(
     page.getByRole("heading", { name: "Calibrate your comfortable range" }),
@@ -104,7 +106,7 @@ test("real media adapters calibrate voice, drive jump and lift, recover, collide
   expect(harness.cameraRequests).toBe(1);
   expect(harness.workletUrls.length).toBeGreaterThan(0);
   for (const url of harness.workletUrls) {
-    expect(new URL(url).pathname).toBe("/shouting-chickens/audio/voice-rms-processor.js");
+    expect(new URL(url).pathname).toBe(expectedWorkletUrl.pathname);
   }
   expect(workletResponses.length).toBeGreaterThan(0);
   expect(workletResponses.every((response) => response.status() === 200)).toBe(true);

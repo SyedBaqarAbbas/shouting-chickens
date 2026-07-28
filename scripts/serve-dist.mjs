@@ -11,7 +11,9 @@ const CONTENT_TYPES = new Map([
   [".html", "text/html; charset=utf-8"],
   [".js", "text/javascript; charset=utf-8"],
   [".json", "application/json; charset=utf-8"],
+  [".png", "image/png"],
   [".svg", "image/svg+xml"],
+  [".webmanifest", "application/manifest+json"],
 ]);
 
 export function normalizedBasePath(value = process.env.PAGES_BASE_PATH) {
@@ -39,19 +41,25 @@ export function createDistServer({ root = distDirectory(), basePath = normalized
         relativePath === "" || relativePath.endsWith("/")
           ? `${relativePath}index.html`
           : relativePath;
-      const absolutePath = resolve(root, requestedPath);
+      let absolutePath = resolve(root, requestedPath);
       if (absolutePath !== root && !absolutePath.startsWith(`${root}${sep}`)) {
         respond(response, 400, "Invalid path");
         return;
       }
 
-      const metadata = await stat(absolutePath).catch(() => null);
+      let statusCode = 200;
+      let metadata = await stat(absolutePath).catch(() => null);
+      if (!metadata?.isFile() && request.headers.accept?.includes("text/html")) {
+        absolutePath = resolve(root, "404.html");
+        metadata = await stat(absolutePath).catch(() => null);
+        statusCode = 404;
+      }
       if (!metadata?.isFile()) {
         respond(response, 404, "Not found");
         return;
       }
 
-      response.writeHead(200, {
+      response.writeHead(statusCode, {
         "cache-control": "no-store",
         "content-length": metadata.size,
         "content-type": CONTENT_TYPES.get(extname(absolutePath)) || "application/octet-stream",

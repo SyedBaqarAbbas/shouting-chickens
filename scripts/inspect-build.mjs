@@ -16,16 +16,39 @@ import {
 
 const ALLOWED_FILES = new Set([
   ".nojekyll",
+  "404.html",
   "artifact-manifest.json",
   "audio/voice-rms-processor.js",
   "favicon.svg",
+  "icons/app-icon-180.png",
+  "icons/app-icon-192.png",
+  "icons/app-icon-512.png",
+  "icons/app-icon-maskable-512.png",
   "index.html",
   "legal.css",
+  "manifest.webmanifest",
   "privacy/index.html",
+  "pwa-release.json",
   "release.json",
+  "service-worker.js",
   "support/index.html",
 ]);
 const ALLOWED_ASSET = /^assets\/[0-9A-Za-z_-]+\.(?:css|js)$/;
+const PWA_ICON_SPECS = new Map([
+  ["icons/app-icon-180.png", 180],
+  ["icons/app-icon-192.png", 192],
+  ["icons/app-icon-512.png", 512],
+  ["icons/app-icon-maskable-512.png", 512],
+]);
+const PWA_PUBLIC_SOURCES = [
+  "audio/voice-rms-processor.js",
+  "favicon.svg",
+  ...PWA_ICON_SPECS.keys(),
+  "legal.css",
+  "manifest.webmanifest",
+  "privacy/index.html",
+  "support/index.html",
+];
 const FORBIDDEN_PATH =
   /(?:^|\/)(?:image[123](?:\.|$)|coverage|playwright-report|test-results|screenshots?|references?|recordings?|captures?|replays?)(?:\/|\.|$)/i;
 const FORBIDDEN_EXTENSION =
@@ -128,6 +151,11 @@ for (const file of files) {
   }
 
   const bytes = await readFile(resolve(root, file));
+  const iconSize = PWA_ICON_SPECS.get(file);
+  if (iconSize) {
+    assertPngIcon(file, bytes, iconSize);
+    continue;
+  }
   assertTextArtifact(file, bytes);
   const text = bytes.toString("utf8");
   if (/data:(?:audio|video)\//i.test(text)) {
@@ -142,8 +170,13 @@ for (const file of files) {
   }
 }
 
-for (const file of files.filter((candidate) => /\.(?:css|html|js)$/.test(candidate))) {
-  const text = await readFile(resolve(root, file), "utf8");
+const expectedBasePath = normalizedPagesBasePath();
+for (const file of files.filter(
+  (candidate) => candidate !== "404.html" && /\.(?:css|html|js)$/.test(candidate),
+)) {
+  const source = await readFile(resolve(root, file), "utf8");
+  const text =
+    file === "index.html" ? source.replace(`<base href="${expectedBasePath}" />`, "") : source;
   const rootAbsolutePatterns = [
     /\b(?:action|href|poster|src)\s*=\s*["']\s*(\/(?!\/)[^"']*)["']/g,
     /\bsrcset\s*=\s*["'][^"']*(\/(?!\/)[^"',\s]*)/g,
@@ -154,6 +187,85 @@ for (const file of files.filter((candidate) => /\.(?:css|html|js)$/.test(candida
       throw new Error(`Root-absolute URL is not Pages-subpath safe in ${file}: ${match[1]}`);
     }
   }
+}
+
+const pwaRelease = await readJson(root, "pwa-release.json");
+const expectedPwaAssets = [
+  "./",
+  ...[
+    ...files.filter((file) => ALLOWED_ASSET.test(file)),
+    ...PWA_PUBLIC_SOURCES,
+    "index.html",
+    "pwa-release.json",
+    "release.json",
+  ]
+    .sort(codeUnitCompare)
+    .map((file) => `./${file}`),
+];
+if (
+  pwaRelease.schemaVersion !== 1 ||
+  pwaRelease.version !== release.version ||
+  pwaRelease.commitSha !== release.commitSha ||
+  pwaRelease.cacheName !==
+    `shouting-chickens-shell-${safeIdentity(release.version)}-${safeIdentity(release.commitSha)}` ||
+  !Array.isArray(pwaRelease.assets)
+) {
+  throw new Error("pwa-release.json identity does not match the sealed release");
+}
+for (const asset of pwaRelease.assets) {
+  assertPwaAsset(asset);
+}
+if (JSON.stringify(pwaRelease.assets) !== JSON.stringify(expectedPwaAssets)) {
+  throw new Error("pwa-release.json does not enumerate the exact application source shell");
+}
+
+const webManifest = await readJson(root, "manifest.webmanifest");
+assertInstallableManifest(webManifest);
+
+const indexHtml = await readFile(resolve(root, "index.html"), "utf8");
+for (const installLink of [
+  `<base href="${expectedBasePath}" />`,
+  'rel="manifest"',
+  "./manifest.webmanifest",
+  'rel="apple-touch-icon"',
+  'sizes="180x180"',
+  "./icons/app-icon-180.png",
+  'name="theme-color"',
+]) {
+  if (!indexHtml.includes(installLink)) {
+    throw new Error(`index.html is missing install metadata: ${installLink}`);
+  }
+}
+if ((indexHtml.match(/<base\b/g) ?? []).length !== 1) {
+  throw new Error("index.html must contain exactly one configured Pages base element");
+}
+
+const workerSource = await readFile(resolve(root, "service-worker.js"), "utf8");
+if (
+  !workerSource.includes(JSON.stringify(`${release.version}:${release.commitSha}`)) ||
+  !workerSource.includes(JSON.stringify(pwaRelease.cacheName)) ||
+  !workerSource.includes(JSON.stringify(pwaRelease.assets, null, 2))
+) {
+  throw new Error(
+    "service-worker.js does not embed the exact PWA release identity and source shell",
+  );
+}
+if (
+  (workerSource.match(/self\.skipWaiting\(\)/g) ?? []).length !== 1 ||
+  !workerSource.includes('event.data.type === "APPLY_UPDATE"') ||
+  (workerSource.match(/cache\.put\(/g) ?? []).length !== 1
+) {
+  throw new Error(
+    "service-worker.js must wait for explicit activation and avoid runtime cache writes",
+  );
+}
+
+const pagesFallback = await readFile(resolve(root, "404.html"), "utf8");
+if (
+  !pagesFallback.includes(`location.replace(${JSON.stringify(expectedBasePath)})`) ||
+  !pagesFallback.includes(`href="${expectedBasePath}"`)
+) {
+  throw new Error("404.html does not restore the configured GitHub Pages base path");
 }
 
 const javascript = (
@@ -214,6 +326,98 @@ function assertTextArtifact(file, bytes) {
   if (suspiciousControls > 0) {
     throw new Error(`Binary control bytes found in production artifact: ${file}`);
   }
+}
+
+function assertPngIcon(file, bytes, expectedSize) {
+  const pngSignature = BINARY_SIGNATURES[0].bytes;
+  if (
+    bytes.byteLength > 256 * 1_024 ||
+    !pngSignature.every((byte, index) => bytes[index] === byte) ||
+    bytes.subarray(12, 16).toString("ascii") !== "IHDR" ||
+    bytes.readUInt32BE(16) !== expectedSize ||
+    bytes.readUInt32BE(20) !== expectedSize
+  ) {
+    throw new Error(`${file} must be an exact ${expectedSize}x${expectedSize} PNG app icon`);
+  }
+}
+
+function assertInstallableManifest(manifest) {
+  const expectedIcons = [
+    ["./icons/app-icon-192.png", "192x192", "any"],
+    ["./icons/app-icon-512.png", "512x512", "any"],
+    ["./icons/app-icon-maskable-512.png", "512x512", "maskable"],
+  ];
+  if (
+    manifest.name !== "Shouting Chickens" ||
+    manifest.short_name !== "Chickens" ||
+    typeof manifest.description !== "string" ||
+    manifest.description.trim().length === 0 ||
+    manifest.lang !== "en" ||
+    manifest.dir !== "ltr" ||
+    manifest.id !== "./" ||
+    manifest.start_url !== "./" ||
+    manifest.scope !== "./" ||
+    manifest.display !== "standalone" ||
+    manifest.orientation !== "portrait-primary" ||
+    manifest.background_color !== "#081426" ||
+    manifest.theme_color !== "#081426" ||
+    !Array.isArray(manifest.categories) ||
+    !manifest.categories.includes("games") ||
+    !Array.isArray(manifest.icons)
+  ) {
+    throw new Error("manifest.webmanifest is missing required installability metadata");
+  }
+  for (const [src, sizes, purpose] of expectedIcons) {
+    if (
+      !manifest.icons.some(
+        (icon) =>
+          icon?.src === src &&
+          icon.sizes === sizes &&
+          icon.type === "image/png" &&
+          icon.purpose === purpose,
+      )
+    ) {
+      throw new Error(`manifest.webmanifest is missing installable icon ${src} (${purpose})`);
+    }
+  }
+  if (manifest.icons.length !== expectedIcons.length) {
+    throw new Error("manifest.webmanifest must enumerate only the approved install icons");
+  }
+}
+
+function assertPwaAsset(asset) {
+  if (
+    typeof asset !== "string" ||
+    (asset !== "./" &&
+      (!asset.startsWith("./") ||
+        asset.includes("\\") ||
+        asset.includes("?") ||
+        asset.includes("#") ||
+        asset.includes(".."))) ||
+    /(?:^|\/)(?:api|graphql|reports?|replays?|recordings?|captures?|media|uploads?)(?:\/|$)/i.test(
+      asset,
+    ) ||
+    /\.(?:aac|avi|blob|csv|flac|gif|jpeg|jpg|m4a|mov|mp3|mp4|ogg|pdf|trace|tsv|wav|webm|zip)$/i.test(
+      asset,
+    ) ||
+    /^(?:blob|data|https?):/i.test(asset)
+  ) {
+    throw new Error(`PWA precache entry is not an application source asset: ${asset}`);
+  }
+}
+
+function normalizedPagesBasePath() {
+  const candidate = process.env.PAGES_BASE_PATH?.trim() || "/shouting-chickens/";
+  const withLeadingSlash = candidate.startsWith("/") ? candidate : `/${candidate}`;
+  return withLeadingSlash.endsWith("/") ? withLeadingSlash : `${withLeadingSlash}/`;
+}
+
+function safeIdentity(value) {
+  return value.replace(/[^0-9A-Za-z.-]/g, "-");
+}
+
+function codeUnitCompare(left, right) {
+  return left < right ? -1 : left > right ? 1 : 0;
 }
 
 function assertNoEncodedMedia(file, text) {

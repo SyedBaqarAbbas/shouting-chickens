@@ -19,6 +19,11 @@ advances, retries, exits, or the tab closes.
 The supplied social-video screenshots are planning references only; production
 artwork and branding will be original.
 
+The production build is an installable offline PWA. It precaches only an exact,
+release-specific list of application source files. A waiting release remains
+inactive during a run and reloads only after the player confirms the visible
+update prompt.
+
 ## Local development
 
 Use Node `22.19.0` and npm `10.9.3`.
@@ -38,7 +43,8 @@ npm run test
 npm run build
 ```
 
-Run `npm run test:e2e` for browser-facing changes.
+Run `npm run test:e2e` for browser-facing changes and `npm run test:e2e:pwa`
+for installability, offline, service-worker update, or Pages-routing changes.
 
 ## MVP release verification
 
@@ -52,6 +58,7 @@ COMMIT_SHA="$(git rev-parse HEAD)"
 export APP_VERSION COMMIT_SHA
 npm run build
 npm run test:e2e:production
+npm run test:e2e:pwa
 npm run test:lighthouse
 npm run test:soak
 ```
@@ -63,10 +70,13 @@ automation is deferred to SHO-20.
 
 Use the [release process](docs/release/release-process.md),
 [physical-device checklist](docs/release/mvp-release-checklist.md), and
-[support matrix](docs/release/support-matrix.md). The hosted artifact includes
-local Privacy and Support pages. The MVP processes microphone and optional
-camera input on-device. It does not upload raw media or persist recordings;
-calibration playback is transient and remains only in the current tab.
+[support matrix](docs/release/support-matrix.md). Use the
+[rollback runbook](docs/release/pwa-rollback.md) to validate a known-good
+artifact and rehearse recovery without deploying it. The hosted artifact
+includes local Privacy and Support pages. The MVP processes microphone and
+optional camera input on-device. It does not upload raw media or persist
+recordings; calibration playback is transient and remains only in the current
+tab.
 
 ## Local settings, privacy, and fallback controls
 
