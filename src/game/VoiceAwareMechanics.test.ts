@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { AUTHORED_CHUNK_TEMPLATES, type ChunkTemplate } from "../content";
 import type { ControlIntent, GameplayInteractionEvent } from "../core";
 import { GeneratedChunkCourse } from "./GeneratedChunkCourse";
+import { COLLECTIBLE_SCORE } from "./Scoring";
 import {
   CHICKEN_SCREEN_X,
   ChickenSimulation,
@@ -299,7 +300,7 @@ describe("voice-aware authored mechanics", () => {
     }
   });
 
-  it("keeps feather paths optional and emits every collection only once without changing score", () => {
+  it("keeps feather paths optional and rewards every one-shot collection explicitly", () => {
     const fallback = runFeatherCatalog(false);
     const collector = runFeatherCatalog(true);
     const collectionEvents = collector.events.filter(
@@ -321,7 +322,15 @@ describe("voice-aware authored mechanics", () => {
     expect(new Set(collectionEvents.map((event) => event.value.id)).size).toBe(
       collectionEvents.length,
     );
-    expect(collector.snapshot.score).toBe(fallback.snapshot.score);
+    expect(collector.snapshot.scoreBreakdown.survival).toBe(
+      fallback.snapshot.scoreBreakdown.survival,
+    );
+    expect(collector.snapshot.scoreBreakdown.collectibles).toBe(
+      collectionEvents.length * COLLECTIBLE_SCORE,
+    );
+    expect(collector.snapshot.score).toBe(
+      fallback.snapshot.score + collectionEvents.length * COLLECTIBLE_SCORE,
+    );
   });
 
   it("replays the same mechanic trace for voice and keyboard-touch ControlIntent equivalents", () => {

@@ -145,9 +145,13 @@ test("real media adapters calibrate voice, drive jump and lift, recover, collide
   await expect(surface).toHaveAttribute("data-simulation-phase", "dead");
   const elapsedMs = await numericAttribute(surface, "data-elapsed-ms");
   const score = await numericAttribute(surface, "data-score");
+  const survivalScore = await numericAttribute(surface, "data-survival-score");
+  const collectibleScore = await numericAttribute(surface, "data-collectible-score");
+  const precisionScore = await numericAttribute(surface, "data-precision-score");
   expect(elapsedMs).toBeGreaterThan(0);
   expect(score).toBeGreaterThan(0);
-  expect(score).toBe(Math.floor(elapsedMs / 100));
+  expect(survivalScore).toBe(Math.floor(elapsedMs / 100));
+  expect(score).toBe(survivalScore + collectibleScore + precisionScore);
   expect(["water", "fall", "hazard"]).toContain(await surface.getAttribute("data-death-reason"));
 
   await page.getByRole("button", { name: "Restart run" }).click();

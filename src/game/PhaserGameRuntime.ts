@@ -328,8 +328,12 @@ export class PhaserGameRuntime implements GameRuntime, PhaserFrameHost {
       phase: after.phase === "dead" ? "game-over" : after.phase,
       elapsedMs: after.elapsedMs,
       score: after.score,
+      scoreBreakdown: { ...after.scoreBreakdown },
       distance: after.distance,
       normalizedInput: this.normalizedInput,
+      liftStamina: after.liftStamina,
+      difficultyStage: after.difficultyStage,
+      worldSpeed: after.worldSpeed,
     });
 
     if (after.phase === "dead" && !this.endedEventSent && this.lastRunOptions) {
@@ -345,8 +349,10 @@ export class PhaserGameRuntime implements GameRuntime, PhaserFrameHost {
           seed: this.lastRunOptions.seed,
           gameplayVersion: this.lastRunOptions.gameplayVersion,
           score: after.score,
+          scoreBreakdown: { ...after.scoreBreakdown },
           survivalMs: after.elapsedMs,
           distance: after.distance,
+          statistics: { ...after.statistics },
           reason: after.deathReason ?? "fall",
         },
       });
@@ -471,6 +477,17 @@ export class PhaserGameRuntime implements GameRuntime, PhaserFrameHost {
     this.container.dataset.playerAnimation = snapshot.chicken.animation;
     this.container.dataset.supportingPlatform = snapshot.chicken.supportingPlatformId ?? "";
     this.container.dataset.score = String(snapshot.score);
+    this.container.dataset.survivalScore = String(snapshot.scoreBreakdown.survival);
+    this.container.dataset.collectibleScore = String(snapshot.scoreBreakdown.collectibles);
+    this.container.dataset.precisionScore = String(snapshot.scoreBreakdown.precision);
+    this.container.dataset.liftStamina = snapshot.liftStamina.toFixed(3);
+    this.container.dataset.effectiveLift = snapshot.effectiveLift.toFixed(3);
+    this.container.dataset.difficultyStage = String(snapshot.difficultyStage);
+    this.container.dataset.difficulty = String(snapshot.difficulty);
+    this.container.dataset.worldSpeed = snapshot.worldSpeed.toFixed(3);
+    this.container.dataset.obstaclesCleared = String(snapshot.statistics.obstaclesCleared);
+    this.container.dataset.precisionLandings = String(snapshot.statistics.precisionLandings);
+    this.container.dataset.longestLiftMs = String(snapshot.statistics.longestLiftMs);
     this.container.dataset.simulationTick = String(snapshot.tick);
     this.container.dataset.elapsedMs = String(snapshot.elapsedMs);
     this.container.dataset.courseDistance = String(snapshot.courseDistance);

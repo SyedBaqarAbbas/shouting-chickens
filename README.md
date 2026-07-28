@@ -1,9 +1,10 @@
 # Shouting Chickens
 
 A mobile-first browser platformer where a calibrated voice pulse makes a
-chicken jump and sustained sound adds airborne lift. The playable MVP includes
-a handcrafted looping course, elapsed-time score, restart, optional mirrored
-camera, and keyboard/touch fallback.
+chicken jump and sustained sound adds stamina-limited airborne lift. The
+playable game uses a seeded stream of authored chunks with bounded difficulty,
+survival and optional-bonus scoring, restart, optional mirrored camera, and
+keyboard/touch fallback.
 
 See [implementation-plan.md](implementation-plan.md) for the locked gameplay
 model, full browser-product architecture, testing policy, and delivery roadmap.
@@ -91,20 +92,24 @@ Voice players can recalibrate or adjust the derived jump threshold between
 gesture on a new visit. Camera preference never starts the camera
 automatically. Bests update only after a valid local run reaches results.
 
-## Handcrafted course contract
+## Generated course and scoring contract
 
-The MVP course is a fixed `2,500 px` cycle running at `144 px/s`. Its authored
-jump/lift envelope is deliberately narrower than the controller limits:
+Every run selects from authored, reachability-checked chunks using its seed and
+gameplay version; it does not generate arbitrary platform geometry. Difficulty
+changes only when a new chunk begins:
 
-- gaps are at most `110 px`, with no more than `56 px` of upward step;
-- every gap has at least `190 px` of safe approach and `360 px` of landing;
-- jump starts at `-470 px/s`, airborne rise is capped at `-560 px/s`, and
-  authored lift traces use at most `0.8`;
-- lift acceleration is `900 px/s²` against `1,180 px/s²` gravity, so even a
-  continuously held maximum lift eventually descends;
-- the sequence introduces a small water gap, a fall gap, a lift gap, and one
-  spike before a safe return to the start.
+- stages begin at chunks `0`, `6`, `14`, `24`, and `36`;
+- world speed rises from `144 px/s` to a capped `160 px/s`;
+- selected routes stay within a `110 px` maximum gap, `56 px` maximum rise,
+  `90 px` maximum drop, and the active minimum landing width;
+- introduction chunks have more weight early and advanced chunks gain weight
+  later, without bypassing compatible entry/exit contracts;
+- airborne lift drains stamina at `40%` per second at full input, while release
+  or grounded play recovers it at `80%` per second.
 
-Score is elapsed survival time at ten points per second. Water, a fall, or the
-spike freezes the exact score tick; Space, Arrow Up, or tap starts a completely
-reset run.
+Survival earns ten points per second, each optional feather earns `25`, and the
+first landing on a platform no wider than `200 px` earns `10` precision points.
+Results report those components plus distance, obstacles, collectibles,
+precision landings, and longest lift; the non-identifying run summary also
+records the highest stage. Restart resets the course stream, difficulty,
+stamina, score, and run statistics to the same seeded initial state.

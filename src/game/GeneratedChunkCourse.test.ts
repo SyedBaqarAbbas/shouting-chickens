@@ -5,7 +5,13 @@ import {
   areChunkBoundariesCompatible,
   type ChunkTemplate,
 } from "../content";
+import {
+  DIFFICULTY_PROFILES,
+  MAX_DIFFICULTY_WORLD_SPEED,
+  type DifficultyProfile,
+} from "./DifficultyProgression";
 import { GeneratedChunkCourse } from "./GeneratedChunkCourse";
+import { PRECISION_LANDING_SCORE } from "./Scoring";
 import {
   CHICKEN_SCREEN_X,
   ChickenSimulation,
@@ -23,7 +29,11 @@ function activeTemplateIds(course: GeneratedChunkCourse) {
   return course.snapshot().chunks.map((chunk) => chunk.templateId);
 }
 
-function runReachableTemplate(templateId: string, targetChunkIndex: number) {
+function runReachableTemplate(
+  templateId: string,
+  targetChunkIndex: number,
+  progression?: DifficultyProfile,
+) {
   const template = AUTHORED_CHUNK_TEMPLATES.find((candidate) => candidate.id === templateId);
   if (!template) {
     throw new Error(`Missing authored template ${templateId}`);
@@ -33,6 +43,8 @@ function runReachableTemplate(templateId: string, targetChunkIndex: number) {
     templates: [template],
     slotCount: 5,
     repeatWindow: 0,
+    difficultyForChunk: progression ? () => template.minimumDifficulty : undefined,
+    progressionForChunk: progression ? () => progression : undefined,
   });
   course.reset(`trace-${templateId}`, "gameplay-v1");
   const simulation = new ChickenSimulation({ generatedCourse: course });
@@ -321,11 +333,11 @@ describe("GeneratedChunkCourse", () => {
   });
 
   it.each([
-    ["meadow-hop", 10],
-    ["lift-terraces", 8],
+    ["meadow-hop", 10, 0],
+    ["lift-terraces", 8, 1],
   ] as const)(
     "replays deterministic jump/lift controls through reachable %s gaps",
-    (templateId, targetChunkIndex) => {
+    (templateId, targetChunkIndex, minimumPrecisionLandings) => {
       const first = runReachableTemplate(templateId, targetChunkIndex);
       const second = runReachableTemplate(templateId, targetChunkIndex);
 
@@ -337,10 +349,31 @@ describe("GeneratedChunkCourse", () => {
         deathReason: null,
       });
       expect(first.simulation.snapshot().landingCount).toBeGreaterThanOrEqual(targetChunkIndex);
+      expect(first.simulation.snapshot().statistics.precisionLandings).toBeGreaterThanOrEqual(
+        minimumPrecisionLandings,
+      );
+      expect(first.simulation.snapshot().scoreBreakdown.precision).toBe(
+        first.simulation.snapshot().statistics.precisionLandings * PRECISION_LANDING_SCORE,
+      );
       expect(first.course.snapshot().recycledChunks).toBeGreaterThan(0);
       expect(first.simulation.diagnostics().pooledObjects).toBe(
         first.course.poolCapacities().total,
       );
+    },
+  );
+
+  it.each(["meadow-hop", "lift-terraces"] as const)(
+    "keeps representative %s traversal reachable at the configured speed cap",
+    (templateId) => {
+      const capped = runReachableTemplate(templateId, 8, DIFFICULTY_PROFILES.at(-1)!);
+
+      expect(capped.simulation.snapshot()).toMatchObject({
+        phase: "running",
+        currentChunkIndex: 8,
+        worldSpeed: MAX_DIFFICULTY_WORLD_SPEED,
+        difficultyStage: 5,
+      });
+      expect(capped.simulation.snapshot().deathReason).toBeNull();
     },
   );
 

@@ -1,4 +1,10 @@
-import type { ControlIntent, GameplayInteractionEvent, RunEndReason } from "../core";
+import type {
+  ControlIntent,
+  GameplayInteractionEvent,
+  RunEndReason,
+  RunStatistics,
+  ScoreBreakdown,
+} from "../core";
 import {
   COURSE_LENGTH,
   COURSE_WORLD_SPEED,
@@ -19,6 +25,12 @@ import {
   type GeneratedCollectibleDefinition,
   type GeneratedQuietZoneDefinition,
 } from "./GeneratedChunkCourse";
+import {
+  advanceLiftStamina,
+  INITIAL_LIFT_STAMINA_STATE,
+  type LiftStaminaState,
+} from "./LiftStamina";
+import { calculateScoreBreakdown, PRECISION_LANDING_MAX_WIDTH } from "./Scoring";
 
 export const LOGICAL_GAME_WIDTH = 432;
 export const LOGICAL_GAME_HEIGHT = 768;
@@ -31,7 +43,7 @@ export const CHICKEN_BODY_HEIGHT = 54;
 export const WATER_DEATH_Y = 704;
 export const FALL_DEATH_Y = LOGICAL_GAME_HEIGHT + CHICKEN_BODY_HEIGHT;
 export const FIXED_WORLD_SPEED = COURSE_WORLD_SPEED;
-export const SURVIVAL_SCORE_INTERVAL_MS = 100;
+export { SURVIVAL_SCORE_INTERVAL_MS } from "./Scoring";
 
 const STEP_SECONDS = 1 / FIXED_STEP_HZ;
 const LANDING_EPSILON = 0.001;
@@ -49,11 +61,17 @@ export type SimulationSnapshot = {
   tick: number;
   elapsedMs: number;
   score: number;
+  scoreBreakdown: ScoreBreakdown;
   distance: number;
   courseDistance: number;
   loopsCompleted: number;
   currentChunkIndex: number;
   currentChunkId: string | null;
+  difficultyStage: number;
+  difficulty: number;
+  worldSpeed: number;
+  liftStamina: number;
+  effectiveLift: number;
   chicken: {
     x: number;
     y: number;
@@ -66,6 +84,7 @@ export type SimulationSnapshot = {
   collisionId: string | null;
   landingCount: number;
   collectedCollectibleIds: readonly string[];
+  statistics: RunStatistics;
 };
 
 export type SimulationDiagnostics = {
@@ -122,7 +141,9 @@ function copySnapshot(snapshot: SimulationSnapshot): SimulationSnapshot {
   return {
     ...snapshot,
     chicken: { ...snapshot.chicken },
+    scoreBreakdown: { ...snapshot.scoreBreakdown },
     collectedCollectibleIds: [...snapshot.collectedCollectibleIds],
+    statistics: { ...snapshot.statistics },
   };
 }
 
@@ -271,6 +292,19 @@ function isInsideQuietZone(
   );
 }
 
+function intersectsCeiling(
+  zone: QuietZoneInstance,
+  previousWorldX: number,
+  nextWorldX: number,
+  chickenY: number,
+) {
+  const sweptLeft = Math.min(previousWorldX, nextWorldX) - CHICKEN_BODY_WIDTH / 2;
+  const sweptRight = Math.max(previousWorldX, nextWorldX) + CHICKEN_BODY_WIDTH / 2;
+  const chickenTop = chickenY - CHICKEN_BODY_HEIGHT / 2;
+
+  return sweptRight > zone.worldX && sweptLeft < zone.worldX + zone.width && chickenTop <= zone.top;
+}
+
 function intersectsCollectible(
   collectible: CollectibleInstance,
   previousWorldX: number,
@@ -301,7 +335,11 @@ export class ChickenSimulation {
   private readonly playerController: FixedStepPlayerController;
   private readonly collectedCollectibleIds = new Set<string>();
   private readonly emittedCollisionIds = new Set<string>();
+  private readonly precisionLandingIds = new Set<string>();
+  private readonly clearedObstacleIds = new Set<string>();
   private interactionEvents: GameplayInteractionEvent[] = [];
+  private liftStaminaState: LiftStaminaState = INITIAL_LIFT_STAMINA_STATE;
+  private obstaclesClearedCount = 0;
   private snapshotValue: SimulationSnapshot;
 
   constructor(options: SimulationOptions = {}) {
@@ -398,10 +436,15 @@ export class ChickenSimulation {
 
   reset() {
     this.assertAlive();
+    this.generatedCourse?.restart();
     this.playerController.reset();
     this.collectedCollectibleIds.clear();
     this.emittedCollisionIds.clear();
+    this.precisionLandingIds.clear();
+    this.clearedObstacleIds.clear();
     this.interactionEvents = [];
+    this.liftStaminaState = INITIAL_LIFT_STAMINA_STATE;
+    this.obstaclesClearedCount = 0;
     this.snapshotValue = this.createInitialSnapshot();
     return this.snapshot();
   }
@@ -416,11 +459,12 @@ export class ChickenSimulation {
     const state = this.snapshotValue;
     const chicken = state.chicken;
     const previousWorldX = state.distance + CHICKEN_SCREEN_X;
+    const startingChunk = this.generatedCourse?.chunkAt(previousWorldX);
+    const worldSpeed = startingChunk?.progression.worldSpeed ?? this.worldSpeed;
 
     state.tick += 1;
     state.elapsedMs = state.tick * FIXED_STEP_MS;
-    state.score = Math.floor(state.elapsedMs / SURVIVAL_SCORE_INTERVAL_MS);
-    state.distance += this.worldSpeed * STEP_SECONDS;
+    state.distance += worldSpeed * STEP_SECONDS;
     const chickenWorldX = state.distance + CHICKEN_SCREEN_X;
     const geometry = this.worldGeometry(chickenWorldX, state.tick);
     const nearbyPlatforms = geometry.platforms;
@@ -435,6 +479,17 @@ export class ChickenSimulation {
       this.courseLength === null ? 0 : Math.floor(state.distance / this.courseLength);
     state.currentChunkIndex = currentChunk?.chunkIndex ?? state.loopsCompleted;
     state.currentChunkId = currentChunk?.template.id ?? null;
+    state.difficultyStage = currentChunk?.progression.stage ?? 1;
+    state.difficulty = currentChunk?.difficulty ?? 1;
+    state.worldSpeed = currentChunk?.progression.worldSpeed ?? this.worldSpeed;
+    state.statistics = {
+      ...state.statistics,
+      distance: state.distance,
+      highestDifficultyStage: Math.max(
+        state.statistics.highestDifficultyStage,
+        state.difficultyStage,
+      ),
+    };
 
     if (chicken.grounded) {
       const support = nearbyPlatforms.find((platform) =>
@@ -450,8 +505,21 @@ export class ChickenSimulation {
       }
     }
 
+    this.liftStaminaState = advanceLiftStamina(
+      this.liftStaminaState,
+      intent.lift,
+      !chicken.grounded,
+      FIXED_STEP_MS,
+    );
+    state.liftStamina = this.liftStaminaState.remaining;
+    state.effectiveLift = this.liftStaminaState.effectiveLift;
+    state.statistics = {
+      ...state.statistics,
+      longestLiftMs: Math.round(this.liftStaminaState.longestLiftTicks * FIXED_STEP_MS),
+    };
+
     const control = this.playerController.step(
-      intent,
+      { ...intent, lift: this.liftStaminaState.effectiveLift },
       {
         grounded: chicken.grounded,
         velocityY: chicken.velocityY,
@@ -485,6 +553,16 @@ export class ChickenSimulation {
         chicken.grounded = true;
         chicken.supportingPlatformId = landing.id;
         state.landingCount += 1;
+        if (
+          landing.width <= PRECISION_LANDING_MAX_WIDTH &&
+          !this.precisionLandingIds.has(landing.id)
+        ) {
+          this.precisionLandingIds.add(landing.id);
+          state.statistics = {
+            ...state.statistics,
+            precisionLandings: this.precisionLandingIds.size,
+          };
+        }
       } else {
         chicken.y = nextY;
       }
@@ -497,6 +575,10 @@ export class ChickenSimulation {
       ) {
         this.collectedCollectibleIds.add(collectible.id);
         state.collectedCollectibleIds = [...this.collectedCollectibleIds];
+        state.statistics = {
+          ...state.statistics,
+          collectibles: this.collectedCollectibleIds.size,
+        };
         this.interactionEvents.push({
           type: "collectible-collected",
           value: {
@@ -509,10 +591,17 @@ export class ChickenSimulation {
     }
 
     const quietZone = geometry.quietZones.find((candidate) =>
-      isInsideQuietZone(candidate, previousWorldX, chickenWorldX, control.lift),
+      isInsideQuietZone(candidate, previousWorldX, chickenWorldX, intent.lift),
     );
     if (quietZone) {
       return this.endRun("hazard", quietZone.id, "quiet-zone");
+    }
+
+    const ceiling = geometry.quietZones.find((candidate) =>
+      intersectsCeiling(candidate, previousWorldX, chickenWorldX, chicken.y),
+    );
+    if (ceiling) {
+      return this.endRun("hazard", `${ceiling.id}:ceiling`, "ceiling");
     }
 
     const spike = geometry.spikes.find((candidate) =>
@@ -539,6 +628,28 @@ export class ChickenSimulation {
       return this.endRun("fall", "void", "fall");
     }
 
+    const chickenLeft = chickenWorldX - CHICKEN_BODY_WIDTH / 2;
+    const obstacles = [...geometry.spikes, ...geometry.quietZones, ...geometry.water];
+    const activeObstacleIds = new Set(obstacles.map((obstacle) => obstacle.id));
+    for (const clearedId of this.clearedObstacleIds) {
+      if (!activeObstacleIds.has(clearedId)) {
+        this.clearedObstacleIds.delete(clearedId);
+      }
+    }
+    for (const obstacle of obstacles) {
+      if (
+        obstacle.worldX + obstacle.width < chickenLeft &&
+        !this.clearedObstacleIds.has(obstacle.id)
+      ) {
+        this.clearedObstacleIds.add(obstacle.id);
+        this.obstaclesClearedCount += 1;
+      }
+    }
+    state.statistics = {
+      ...state.statistics,
+      obstaclesCleared: this.obstaclesClearedCount,
+    };
+    this.refreshScore();
     chicken.animation = chicken.grounded ? "run" : control.lift > 0 ? "flap" : "jump";
     return this.snapshot();
   }
@@ -607,11 +718,17 @@ export class ChickenSimulation {
       tick: 0,
       elapsedMs: 0,
       score: 0,
+      scoreBreakdown: calculateScoreBreakdown(0, 0, 0),
       distance: 0,
       courseDistance: 0,
       loopsCompleted: 0,
       currentChunkIndex: currentChunk?.chunkIndex ?? 0,
       currentChunkId: currentChunk?.template.id ?? null,
+      difficultyStage: currentChunk?.progression.stage ?? 1,
+      difficulty: currentChunk?.difficulty ?? 1,
+      worldSpeed: currentChunk?.progression.worldSpeed ?? this.worldSpeed,
+      liftStamina: INITIAL_LIFT_STAMINA_STATE.remaining,
+      effectiveLift: 0,
       chicken: {
         x: CHICKEN_SCREEN_X,
         y: startingPlatform.top - CHICKEN_BODY_HEIGHT / 2,
@@ -624,6 +741,14 @@ export class ChickenSimulation {
       collisionId: null,
       landingCount: 0,
       collectedCollectibleIds: [],
+      statistics: {
+        distance: 0,
+        obstaclesCleared: 0,
+        collectibles: 0,
+        precisionLandings: 0,
+        longestLiftMs: 0,
+        highestDifficultyStage: currentChunk?.progression.stage ?? 1,
+      },
     };
   }
 
@@ -689,6 +814,8 @@ export class ChickenSimulation {
       return this.snapshot();
     }
 
+    this.refreshScore();
+
     if (!this.emittedCollisionIds.has(collisionId)) {
       this.emittedCollisionIds.add(collisionId);
       this.interactionEvents.push({
@@ -709,6 +836,16 @@ export class ChickenSimulation {
     state.chicken.velocityY = 0;
     state.chicken.animation = "death";
     return this.snapshot();
+  }
+
+  private refreshScore() {
+    const state = this.snapshotValue;
+    state.scoreBreakdown = calculateScoreBreakdown(
+      state.elapsedMs,
+      state.statistics.collectibles,
+      state.statistics.precisionLandings,
+    );
+    state.score = state.scoreBreakdown.total;
   }
 
   private assertAlive() {

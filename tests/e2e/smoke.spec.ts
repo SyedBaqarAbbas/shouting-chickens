@@ -135,28 +135,78 @@ test("ends a run once and completely restarts the seeded authored course", async
     inputListeners: "5",
   });
   expect(Number(stableResources.sceneObjects)).toBeGreaterThan(0);
+  let stableEnded: Record<string, string | number | null> | undefined;
 
   for (let run = 0; run < 3; run += 1) {
     await expect(surface).toHaveAttribute("data-simulation-phase", "dead", {
       timeout: 10_000,
     });
-    await expect(surface).toHaveAttribute("data-death-reason", "water");
-    await expect(surface).toHaveAttribute("data-collision-id", "0:stepping-rise:first-pond");
-    await expect(surface).toHaveAttribute("data-current-chunk-id", "stepping-rise");
+    await expect(surface).toHaveAttribute("data-death-reason", "hazard");
+    await expect(surface).toHaveAttribute("data-collision-id", "0:spike-straight:spike");
+    await expect(surface).toHaveAttribute("data-current-chunk-id", "spike-straight");
     await expect(surface).toHaveAttribute("data-failed-run-seed", "authored-launch");
     await expect(surface).toHaveAttribute(
       "data-failed-run-gameplay-version",
-      "sho-16-voice-aware-v1",
+      "sho-17-progression-v1",
     );
 
     const ended = await surface.evaluate((element) => ({
+      activeChunkIds: element.getAttribute("data-active-chunk-ids"),
+      collectedCollectibles: Number(element.getAttribute("data-collected-collectibles")),
+      collectibleScore: Number(element.getAttribute("data-collectible-score")),
+      collisionId: element.getAttribute("data-collision-id"),
+      currentChunkId: element.getAttribute("data-current-chunk-id"),
+      deathReason: element.getAttribute("data-death-reason"),
+      difficultyStage: Number(element.getAttribute("data-difficulty-stage")),
       elapsedMs: Number(element.getAttribute("data-elapsed-ms")),
+      liftStamina: Number(element.getAttribute("data-lift-stamina")),
+      longestLiftMs: Number(element.getAttribute("data-longest-lift-ms")),
+      obstaclesCleared: Number(element.getAttribute("data-obstacles-cleared")),
+      precisionLandings: Number(element.getAttribute("data-precision-landings")),
+      precisionScore: Number(element.getAttribute("data-precision-score")),
       score: Number(element.getAttribute("data-score")),
+      survivalScore: Number(element.getAttribute("data-survival-score")),
+      worldSpeed: Number(element.getAttribute("data-world-speed")),
     }));
+    stableEnded ??= ended;
+    expect(ended).toEqual(stableEnded);
+    expect(ended).toMatchObject({
+      activeChunkIds:
+        "spike-straight,lift-terraces,stepping-rise,precision-islands-intro,meadow-hop,quiet-tunnel-intro",
+      collectedCollectibles: 0,
+      collectibleScore: 0,
+      collisionId: "0:spike-straight:spike",
+      currentChunkId: "spike-straight",
+      deathReason: "hazard",
+      difficultyStage: 1,
+      liftStamina: 1,
+      longestLiftMs: 0,
+      obstaclesCleared: 0,
+      precisionLandings: 0,
+      precisionScore: 0,
+      worldSpeed: 144,
+    });
     expect(ended.elapsedMs).toBeGreaterThan(0);
-    expect(ended.score).toBe(Math.floor(ended.elapsedMs / 100));
+    expect(ended.score).toBe(ended.survivalScore + ended.collectibleScore + ended.precisionScore);
+    expect(ended.survivalScore).toBe(Math.floor(ended.elapsedMs / 100));
+    expect(ended.difficultyStage).toBeGreaterThanOrEqual(1);
+    expect(ended.difficultyStage).toBeLessThanOrEqual(5);
+    expect(ended.worldSpeed).toBeLessThanOrEqual(160);
+    expect(ended.liftStamina).toBeGreaterThanOrEqual(0);
+    expect(ended.liftStamina).toBeLessThanOrEqual(1);
+    expect(ended.obstaclesCleared).toBe(0);
+    expect(ended.precisionLandings).toBeGreaterThanOrEqual(0);
+    expect(ended.longestLiftMs).toBeGreaterThanOrEqual(0);
 
     await expect(page.getByRole("heading", { name: "Nice flight" })).toBeFocused();
+    const resultValue = (label: string) =>
+      page.locator(".results-grid > div").filter({ hasText: label }).locator("dd");
+    await expect(resultValue("Total score")).toHaveText(String(ended.score));
+    await expect(resultValue("Survival points")).toHaveText(String(ended.survivalScore));
+    await expect(resultValue("Collectible bonus")).toHaveText(String(ended.collectibleScore));
+    await expect(resultValue("Precision bonus")).toHaveText(String(ended.precisionScore));
+    await expect(resultValue("Obstacles cleared")).toHaveText(String(ended.obstaclesCleared));
+    await expect(resultValue("Longest lift")).toBeVisible();
     await page.keyboard.press("Tab");
     await expect(page.getByRole("button", { name: "Restart run" })).toBeFocused();
     await page.keyboard.press("Enter");
@@ -164,6 +214,14 @@ test("ends a run once and completely restarts the seeded authored course", async
     await expect(surface).toHaveAttribute("data-death-reason", "");
     await expect(surface).toHaveAttribute("data-collision-id", "");
     await expect(surface).toHaveAttribute("data-loops-completed", "0");
+    await expect(surface).toHaveAttribute("data-collectible-score", "0");
+    await expect(surface).toHaveAttribute("data-precision-score", "0");
+    await expect(surface).toHaveAttribute("data-lift-stamina", "1.000");
+    await expect(surface).toHaveAttribute("data-difficulty-stage", "1");
+    await expect(surface).toHaveAttribute("data-world-speed", "144.000");
+    await expect(surface).toHaveAttribute("data-obstacles-cleared", "0");
+    await expect(surface).toHaveAttribute("data-precision-landings", "0");
+    await expect(surface).toHaveAttribute("data-longest-lift-ms", "0");
     await expect(surface).not.toHaveAttribute("data-failed-run-seed");
     await expect(surface).not.toHaveAttribute("data-failed-run-gameplay-version");
     expect({
@@ -177,7 +235,7 @@ test("ends a run once and completely restarts the seeded authored course", async
   }
 });
 
-test("mounts readable voice-mechanic warnings and resets deterministic moving content", async ({
+test("mounts the exact weighted safe-introduction course and resets its warnings", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
@@ -187,32 +245,37 @@ test("mounts readable voice-mechanic warnings and resets deterministic moving co
   await expect(surface).toHaveAttribute("data-simulation-phase", "paused");
 
   const initial = {
+    challengeStage: await surface.getAttribute("data-current-chunk-challenge-stage"),
     chunks: await surface.getAttribute("data-active-chunk-ids"),
-    warnings: await surface.getAttribute("data-active-warning-copy"),
-    warningCount: Number(await surface.getAttribute("data-active-warning-count")),
+    difficultyStage: Number(await surface.getAttribute("data-difficulty-stage")),
     movementPhases: await surface.getAttribute("data-moving-hazard-phases"),
     pools: await surface.getAttribute("data-pooled-objects"),
-    renderedWarnings: Number(await surface.getAttribute("data-rendered-warnings")),
-    renderedQuietZones: Number(await surface.getAttribute("data-rendered-quiet-zones")),
     renderedCollectibles: Number(await surface.getAttribute("data-rendered-collectibles")),
     renderedMovingHazards: Number(await surface.getAttribute("data-rendered-moving-hazards")),
+    renderedQuietZones: Number(await surface.getAttribute("data-rendered-quiet-zones")),
+    renderedWarnings: Number(await surface.getAttribute("data-rendered-warnings")),
+    warningCount: Number(await surface.getAttribute("data-active-warning-count")),
+    warnings: await surface.getAttribute("data-active-warning-copy"),
+    worldSpeed: Number(await surface.getAttribute("data-world-speed")),
   };
 
-  expect(initial.chunks).toContain("moving-spike-intro");
-  expect(initial.chunks).toContain("quiet-tunnel-intro");
-  expect(initial.chunks).toContain("lift-terraces");
-  expect(initial.chunks).toContain("precision-islands-intro");
-  expect(initial.warnings).toContain("MOVING SPIKE");
+  expect(initial).toMatchObject({
+    challengeStage: "introduction",
+    chunks:
+      "spike-straight,lift-terraces,stepping-rise,precision-islands-intro,meadow-hop,quiet-tunnel-intro",
+    difficultyStage: 1,
+    movementPhases: "",
+    pools: "72",
+    renderedMovingHazards: 0,
+    worldSpeed: 144,
+  });
   expect(initial.warnings).toContain("RELEASE");
   expect(initial.warnings).toContain("HOLD LIFT");
   expect(initial.warnings).toContain("PULSE");
-  expect(initial.warningCount).toBeGreaterThanOrEqual(5);
-  expect(initial.movementPhases).toMatch(/1:moving-spike-intro:moving-spike@\d+/);
-  expect(initial.pools).toBe("72");
-  expect(initial.renderedWarnings).toBeGreaterThanOrEqual(5);
+  expect(initial.warningCount).toBe(4);
+  expect(initial.renderedWarnings).toBe(4);
   expect(initial.renderedQuietZones).toBeGreaterThanOrEqual(1);
   expect(initial.renderedCollectibles).toBeGreaterThanOrEqual(1);
-  expect(initial.renderedMovingHazards).toBeGreaterThanOrEqual(1);
 
   await page.getByRole("button", { name: "Resume run" }).click();
   await expect(surface).toHaveAttribute("data-simulation-phase", "dead", {
@@ -225,10 +288,20 @@ test("mounts readable voice-mechanic warnings and resets deterministic moving co
   await page.getByRole("button", { name: "Pause run" }).click();
   await expect(surface).toHaveAttribute("data-simulation-phase", "paused");
 
-  expect(await surface.getAttribute("data-active-chunk-ids")).toBe(initial.chunks);
-  expect(await surface.getAttribute("data-active-warning-copy")).toBe(initial.warnings);
-  expect(await surface.getAttribute("data-moving-hazard-phases")).toBe(initial.movementPhases);
-  expect(await surface.getAttribute("data-pooled-objects")).toBe(initial.pools);
+  expect({
+    challengeStage: await surface.getAttribute("data-current-chunk-challenge-stage"),
+    chunks: await surface.getAttribute("data-active-chunk-ids"),
+    difficultyStage: Number(await surface.getAttribute("data-difficulty-stage")),
+    movementPhases: await surface.getAttribute("data-moving-hazard-phases"),
+    pools: await surface.getAttribute("data-pooled-objects"),
+    renderedCollectibles: Number(await surface.getAttribute("data-rendered-collectibles")),
+    renderedMovingHazards: Number(await surface.getAttribute("data-rendered-moving-hazards")),
+    renderedQuietZones: Number(await surface.getAttribute("data-rendered-quiet-zones")),
+    renderedWarnings: Number(await surface.getAttribute("data-rendered-warnings")),
+    warningCount: Number(await surface.getAttribute("data-active-warning-count")),
+    warnings: await surface.getAttribute("data-active-warning-copy"),
+    worldSpeed: Number(await surface.getAttribute("data-world-speed")),
+  }).toEqual(initial);
 });
 
 test("pauses behind a rotate message in compact landscape", async ({ page }) => {

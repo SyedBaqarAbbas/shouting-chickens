@@ -45,7 +45,10 @@ test("restarts the sealed MVP without resource growth for at least five wall-clo
     expect(completedRun.generation).toBeGreaterThan(0);
     expect(completedRun.phase).toBe("dead");
     expect(completedRun.restartToken).toBeGreaterThanOrEqual(0);
-    expect(completedRun.score).toBe(Math.floor(completedRun.elapsedMs / 100));
+    expect(completedRun.survivalScore).toBe(Math.floor(completedRun.elapsedMs / 100));
+    expect(completedRun.score).toBe(
+      completedRun.survivalScore + completedRun.collectibleScore + completedRun.precisionScore,
+    );
 
     await page.getByRole("button", { name: "Restart run" }).click();
     await expect(surface).toHaveAttribute(
@@ -68,7 +71,10 @@ test("restarts the sealed MVP without resource growth for at least five wall-clo
     expect(restartedRun.generation).toBe(completedRun.generation + 1);
     expect(restartedRun.restartToken).toBe(completedRun.restartToken + 1);
     expect(restartedRun.score).toBeGreaterThanOrEqual(0);
-    expect(restartedRun.score).toBe(Math.floor(restartedRun.elapsedMs / 100));
+    expect(restartedRun.survivalScore).toBe(Math.floor(restartedRun.elapsedMs / 100));
+    expect(restartedRun.score).toBe(
+      restartedRun.survivalScore + restartedRun.collectibleScore + restartedRun.precisionScore,
+    );
     expect(restartedRun.score).toBeLessThan(completedRun.score);
     await expect(surface.locator("canvas")).toHaveCount(1);
     expect(await resources(surface)).toEqual(stable);
@@ -118,13 +124,16 @@ async function runSnapshot(surface: Locator) {
 
     return {
       collisionId: requiredString("data-collision-id"),
+      collectibleScore: requiredNumber("data-collectible-score"),
       deathReason: requiredString("data-death-reason"),
       elapsedMs: requiredNumber("data-elapsed-ms"),
       generation: requiredNumber("data-run-generation"),
       loopsCompleted: requiredNumber("data-loops-completed"),
       phase: requiredString("data-simulation-phase"),
+      precisionScore: requiredNumber("data-precision-score"),
       restartToken: requiredNumber("data-restart-token"),
       score: requiredNumber("data-score"),
+      survivalScore: requiredNumber("data-survival-score"),
     };
   });
 }

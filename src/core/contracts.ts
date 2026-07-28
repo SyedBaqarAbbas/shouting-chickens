@@ -61,12 +61,32 @@ export type PresentationPreferences = {
 
 export type GamePhase = "ready" | "countdown" | "running" | "paused" | "game-over";
 
+export type ScoreBreakdown = Readonly<{
+  survival: number;
+  collectibles: number;
+  precision: number;
+  total: number;
+}>;
+
+export type RunStatistics = Readonly<{
+  distance: number;
+  obstaclesCleared: number;
+  collectibles: number;
+  precisionLandings: number;
+  longestLiftMs: number;
+  highestDifficultyStage: number;
+}>;
+
 export type GameSnapshot = {
   phase: GamePhase;
   elapsedMs: number;
   score: number;
+  scoreBreakdown: ScoreBreakdown;
   distance: number;
   normalizedInput: number;
+  liftStamina: number;
+  difficultyStage: number;
+  worldSpeed: number;
 };
 
 export type RunEndReason = "water" | "hazard" | "fall" | "quit" | "completed";
@@ -76,8 +96,10 @@ export type RunSummary = {
   seed: string;
   gameplayVersion: string;
   score: number;
+  scoreBreakdown: ScoreBreakdown;
   survivalMs: number;
   distance: number;
+  statistics: RunStatistics;
   reason: RunEndReason;
 };
 
@@ -96,7 +118,7 @@ export type GameplayInteractionEvent =
       type: "hazard-collision";
       value: {
         id: string;
-        kind: "spike" | "moving-spike" | "quiet-zone" | "water" | "fall";
+        kind: "spike" | "moving-spike" | "quiet-zone" | "ceiling" | "water" | "fall";
         tick: number;
       };
     }

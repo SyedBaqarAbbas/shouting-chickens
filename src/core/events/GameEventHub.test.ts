@@ -8,8 +8,17 @@ const snapshot: GameSnapshot = {
   phase: "running",
   elapsedMs: 20,
   score: 20,
+  scoreBreakdown: {
+    survival: 20,
+    collectibles: 0,
+    precision: 0,
+    total: 20,
+  },
   distance: 4,
   normalizedInput: 0.5,
+  liftStamina: 0.75,
+  difficultyStage: 2,
+  worldSpeed: 148,
 };
 
 describe("GameEventHub", () => {

@@ -626,12 +626,26 @@ export type AuthoredChunkSelectorOptions = Readonly<{
   seed: string;
   repeatWindow?: number;
   supportedCapabilities?: readonly TraversalCapability[];
+  templateEligible?: (template: ChunkTemplate, difficulty: number) => boolean;
+  templateWeight?: (template: ChunkTemplate, difficulty: number) => number;
+  transitionEligible?: (
+    previous: ChunkTemplate,
+    next: ChunkTemplate,
+    difficulty: number,
+  ) => boolean;
 }>;
 
 export class AuthoredChunkSelector {
   private readonly random: SeededRandom;
   private readonly repeatWindow: number;
   private readonly supportedCapabilities: ReadonlySet<TraversalCapability>;
+  private readonly templateEligible: (template: ChunkTemplate, difficulty: number) => boolean;
+  private readonly templateWeight: (template: ChunkTemplate, difficulty: number) => number;
+  private readonly transitionEligible: (
+    previous: ChunkTemplate,
+    next: ChunkTemplate,
+    difficulty: number,
+  ) => boolean;
   private readonly recentTemplateIds: string[] = [];
   private readonly introducedMechanics = new Set<ChunkMechanic>();
   private previous: ChunkTemplate | null = null;
@@ -659,6 +673,9 @@ export class AuthoredChunkSelector {
     this.random = new SeededRandom(`${options.gameplayVersion}:${options.seed}`);
     this.repeatWindow = repeatWindow;
     this.supportedCapabilities = new Set(supported);
+    this.templateEligible = options.templateEligible ?? (() => true);
+    this.templateWeight = options.templateWeight ?? (() => 1);
+    this.transitionEligible = options.transitionEligible ?? (() => true);
   }
 
   next(difficulty: number) {
@@ -672,10 +689,13 @@ export class AuthoredChunkSelector {
           template.minimumDifficulty <= difficulty &&
           template.maximumDifficulty >= difficulty &&
           supportsCapability(this.supportedCapabilities, template.requiredCapability) &&
+          this.templateEligible(template, difficulty) &&
           template.requiresIntroductions.every((mechanic) =>
             this.introducedMechanics.has(mechanic),
           ) &&
-          (this.previous === null || areChunkBoundariesCompatible(this.previous, template)),
+          (this.previous === null ||
+            (areChunkBoundariesCompatible(this.previous, template) &&
+              this.transitionEligible(this.previous, template, difficulty))),
       )
       .slice()
       .sort((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0));
@@ -687,11 +707,39 @@ export class AuthoredChunkSelector {
       );
     }
 
-    const withoutRecentRepeats = eligible.filter(
-      (template) => !this.recentTemplateIds.includes(template.id),
+    const weightedEligible = eligible.map((template) => ({
+      template,
+      weight: this.templateWeight(template, difficulty),
+    }));
+    for (const candidate of weightedEligible) {
+      if (!Number.isSafeInteger(candidate.weight) || candidate.weight < 0) {
+        throw new RangeError("Chunk selection weights must be non-negative safe integers");
+      }
+    }
+    const positiveEligible = weightedEligible.filter((candidate) => candidate.weight > 0);
+    if (positiveEligible.length === 0) {
+      throw new Error(
+        `Eligible authored chunks have no positive weight at difficulty ${difficulty}`,
+      );
+    }
+    const withoutRecentRepeats = positiveEligible.filter(
+      (candidate) => !this.recentTemplateIds.includes(candidate.template.id),
     );
-    const candidates = withoutRecentRepeats.length > 0 ? withoutRecentRepeats : eligible;
-    const selected = this.random.pick(candidates);
+    const weightedCandidates =
+      withoutRecentRepeats.length > 0 ? withoutRecentRepeats : positiveEligible;
+    const totalWeight = weightedCandidates.reduce(
+      (total, candidate) => total + candidate.weight,
+      0,
+    );
+    if (!Number.isSafeInteger(totalWeight) || totalWeight <= 0) {
+      throw new RangeError("Total chunk selection weight must be a positive safe integer");
+    }
+    let weightedIndex = this.random.integer(1, totalWeight);
+    const selected =
+      weightedCandidates.find((candidate) => {
+        weightedIndex -= candidate.weight;
+        return weightedIndex <= 0;
+      })?.template ?? weightedCandidates.at(-1)!.template;
 
     this.previous = selected;
     if (selected.challengeStage === "introduction") {
