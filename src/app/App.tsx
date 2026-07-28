@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 
 import { createGameRuntime } from "../game/createGame";
 import { createBrowserMediaSession, type BrowserMediaSession } from "../platform/media";
+import { PwaUpdateNotice } from "../pwa/PwaUpdateNotice";
+import type { PwaUpdateController } from "../pwa/PwaUpdateController";
 import { RELEASE_INFO } from "../release";
 import { GameExperience, type GameExperienceProps } from "./GameExperience";
 
@@ -10,6 +12,7 @@ export interface AppProps extends Pick<
   "countdownStepMs" | "createCalibrationCapture" | "createRuntime" | "createVoiceInput"
 > {
   readonly createMediaSession?: () => BrowserMediaSession;
+  readonly createPwaUpdateController?: () => PwaUpdateController;
 }
 
 function isCompactLandscape() {
@@ -37,10 +40,13 @@ export function App({
   countdownStepMs,
   createCalibrationCapture,
   createMediaSession = createBrowserMediaSession,
+  createPwaUpdateController,
   createRuntime = createGameRuntime,
   createVoiceInput,
 }: AppProps) {
   const [mediaSession, setMediaSession] = useState<BrowserMediaSession | null>(null);
+  const [pwaUpdateHost, setPwaUpdateHost] = useState<HTMLElement | null>(null);
+  const [runActive, setRunActive] = useState(false);
   const landscape = useCompactLandscape();
 
   useEffect(() => {
@@ -73,6 +79,8 @@ export function App({
             createRuntime={createRuntime}
             createVoiceInput={createVoiceInput}
             landscape={landscape}
+            onPwaUpdateHostChange={setPwaUpdateHost}
+            onRunActivityChange={setRunActive}
             session={mediaSession}
           />
         ) : (
@@ -92,6 +100,11 @@ export function App({
           <small>The run pauses and the camera turns off while the screen is landscape.</small>
         </div>
       </section>
+      <PwaUpdateNotice
+        createController={createPwaUpdateController}
+        portalTarget={pwaUpdateHost}
+        runActive={runActive}
+      />
       <footer className="site-release" aria-label="Release information">
         <span className="site-release__build">
           Version {RELEASE_INFO.version} · build{" "}

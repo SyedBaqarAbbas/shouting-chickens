@@ -22,8 +22,10 @@ SHO-20 owns the broader automated cross-browser and performance matrix.
 
 - Derived calibration, settings, and completed-run bests persist locally in a versioned browser
   record. There is no cloud sync, and corrupt or unknown records restore defaults.
-- The MVP is not installable, has no service worker, and does not work offline. PWA behavior belongs
-  to SHO-21.
+- The release is installable and a previously loaded source shell supports local offline play.
+  First load, first install, and every new release still require a network connection.
+- A waiting service worker never activates from application code during a run. The update prompt
+  appears after the run and reloads only after explicit confirmation.
 - There are no accounts, online leaderboards, cloud replays, remote analytics, speech recognition,
   or gameplay backend.
 - Camera and microphone support varies with browser permissions, operating-system privacy controls,

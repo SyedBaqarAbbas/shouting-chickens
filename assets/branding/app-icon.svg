@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <title>Shouting Chickens app icon</title>
+  <desc>
+    Original artwork: a white chicken calling toward a yellow sound ring on a midnight-blue field.
+  </desc>
+  <rect width="512" height="512" rx="116" fill="#081426"/>
+  <circle cx="256" cy="256" r="174" fill="#102e54"/>
+  <path
+    d="M359 156c42 24 69 60 78 108"
+    fill="none"
+    stroke="#f5d567"
+    stroke-linecap="round"
+    stroke-width="28"
+  />
+  <path
+    d="M375 104c67 36 108 94 119 169"
+    fill="none"
+    stroke="#f5d567"
+    stroke-linecap="round"
+    stroke-width="22"
+  />
+  <path
+    d="M313 161c-12-32-43-55-80-55-47 0-85 38-85 85v40c-35 20-58 57-58 99 0 63 51 114 114 114h79c54 0 98-44 98-98 0-47-33-86-77-96 13-25 17-58 9-89Z"
+    fill="#f8fbff"
+  />
+  <path d="m309 203 82 39-82 38Z" fill="#f2aa32"/>
+  <circle cx="276" cy="191" r="14" fill="#081426"/>
+  <circle cx="271" cy="186" r="4" fill="#ffffff"/>
+  <path d="M166 115c-1-32 30-54 58-38 13-30 54-30 68 0 29-15 59 9 56 41-56-25-125-26-182-3Z" fill="#ef4f50"/>
+  <path
+    d="M173 275c65-25 112 21 123 80-56 22-116-1-123-80Z"
+    fill="#d6e8f7"
+    stroke="#b9d5eb"
+    stroke-width="10"
+  />
+  <path d="M189 438v31M272 438v31M166 470h49M248 470h49" stroke="#f2aa32" stroke-linecap="round" stroke-width="18"/>
+</svg>

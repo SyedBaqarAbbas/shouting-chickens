@@ -23,16 +23,26 @@ The build emits:
 
 - `release.json` with version and commit identity;
 - `artifact-manifest.json` with byte length and SHA-256 for every other production file;
-- a Pages-safe relative entry point, favicon, privacy page, support page, and AudioWorklet URL;
+- `pwa-release.json` with the release-specific cache name and exact source-shell paths;
+- an install manifest, original 180/192/512/maskable icons, and a waiting service worker;
+- a Pages `404.html` that restores the configured project subpath on direct reload;
+- a Pages-base-aware entry point, favicon, privacy page, support page, and AudioWorklet URL;
 - `.nojekyll`, so Pages does not transform the tested artifact.
 
 `scripts/inspect-build.mjs` allowlists production paths, rejects symlinks, source maps, unapproved
 raw or embedded media, test/report/reference paths, binary media signatures, large/obfuscated
-base64 payloads, the three planning-reference screenshot fingerprints, root-absolute URLs, and
-high-confidence credential patterns. The pinned Phaser package's six exact hash-and-size PNG
-fallbacks are the only embedded-image exception. Its adversarial Vitest suite proves tamper, renamed
-media, encoded media, secret, unexpected-path, and Pages-subpath failures. This is a release guard,
-not a substitute for reviewing source changes or rotating an exposed credential.
+base64 payloads, the three planning-reference screenshot fingerprints, unapproved root-absolute
+URLs, and high-confidence credential patterns. The one approved absolute URL is the build-time
+validated `<base>` matching `PAGES_BASE_PATH`; it keeps cached shell assets inside the service-worker
+scope when an offline deep-link URL is preserved. The pinned Phaser package's six exact hash-and-size
+PNG fallbacks are the only embedded-image exception. Its adversarial Vitest suite proves tamper,
+renamed media, encoded media, secret, unexpected-path, and Pages-subpath failures. This is a release
+guard, not a substitute for reviewing source changes or rotating an exposed credential.
+
+The PWA inspection additionally requires every icon's actual PNG dimensions, the install manifest's
+scope/start/display/theme/background/purpose metadata, an exact source-only precache list, embedded
+release identity, and a worker with one install-time cache write path. Media, replays, reports,
+object URLs, API-like paths, and cross-origin requests are never runtime-cached.
 
 ## 2. Collect real-device evidence
 
@@ -84,7 +94,13 @@ repository workflow itself has read-only permissions except:
   deploys;
 - all third-party actions are pinned to full commit SHAs;
 - deployment runs only from a manual `main` dispatch with `publish=true`;
+- the selected SHA must equal the current remote `main` tip;
 - separate HTTPS iOS and Android evidence URLs are mandatory.
+
+Pushes to `main` run the complete quality job but intentionally do not auto-deploy. Automatic
+promotion would bypass the physical-device evidence values and protected-environment review required
+for this media-capable game. Static workflow-policy tests ensure deploy still depends on the complete
+quality job and postdeploy still depends on both quality and deploy.
 
 Dispatch after evidence is complete:
 
@@ -99,7 +115,8 @@ gh workflow run ci.yml \
 
 Replace the example URLs with the real records. The quality job runs clean install, audit, formatting,
 lint, typecheck, unit/integration tests, the ordinary E2E suite, sealed Pages-subpath acceptance,
-Lighthouse, and a true five-minute restart soak. Only then does it:
+installability/offline/deferred-update acceptance, Lighthouse, and a true five-minute restart soak.
+Only then does it:
 
 1. upload `mvp-<version>-<full-sha>` as the immutable tested artifact;
 2. upload Lighthouse/soak evidence separately;
@@ -107,7 +124,8 @@ Lighthouse, and a true five-minute restart soak. Only then does it:
 
 The deploy job consumes that Pages artifact. The post-deploy job requires HTTPS, matches visible and
 JSON version/SHA, matches the expected artifact-manifest SHA, downloads every declared file,
-recomputes every byte length/SHA-256, opens privacy/support/worklet paths, and starts a fallback run.
+recomputes every byte length/SHA-256, validates installability/PWA metadata and direct reload, opens
+privacy/support/worklet paths, and starts a fallback run.
 
 ## 4. Review the result
 
@@ -117,7 +135,7 @@ Physical results must remain explicitly separate from Chromium automation.
 
 ## Rollback
 
-GitHub Pages artifacts are immutable, but a rollback still needs the current release gates. Revert
-the bad change on `main`, run automated and physical acceptance against the revert commit, then
-dispatch a new versioned release. Do not manually replace Pages files or redeploy an unverified old
-directory.
+Follow the [PWA rollback runbook](pwa-rollback.md). Rehearse the sealed current and known-good
+artifacts locally, revert the bad source on `main`, run automated and physical acceptance against the
+new revert commit, then dispatch a new versioned release. Do not manually replace Pages files or
+redeploy an unverified old directory.

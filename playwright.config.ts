@@ -5,11 +5,13 @@ import { normalizeDeploymentDirectoryUrl } from "./scripts/deployment-url";
 const suite = process.env.E2E_SUITE ?? "development";
 const productionPreview = process.env.E2E_MODE === "production";
 const pagesBasePath = process.env.PAGES_BASE_PATH ?? "/shouting-chickens/";
+const ignoreHttpsErrors = process.env.PLAYWRIGHT_IGNORE_HTTPS_ERRORS === "1";
 const localOrigin = "http://127.0.0.1:4173";
 const soakDurationMs = Number(process.env.SOAK_DURATION_MS ?? 300_000);
 const testDirectories: Record<string, string> = {
   development: "./tests/e2e",
   postdeploy: "./tests/postdeploy",
+  pwa: "./tests/pwa",
   release: "./tests/release",
   soak: "./tests/soak",
 };
@@ -37,7 +39,7 @@ export default defineConfig({
   retries: suite === "soak" || suite === "release" ? 0 : process.env.CI ? 2 : 0,
   reporter: process.env.CI ? [["line"], ["html", { open: "never" }]] : "list",
   timeout: suite === "soak" ? soakDurationMs + 60_000 : 30_000,
-  workers: suite === "soak" ? 1 : undefined,
+  workers: suite === "soak" || suite === "pwa" ? 1 : undefined,
   use: {
     baseURL:
       suite === "postdeploy"
@@ -45,6 +47,8 @@ export default defineConfig({
         : productionPreview
           ? `${localOrigin}${pagesBasePath}`
           : localOrigin,
+    ignoreHTTPSErrors: ignoreHttpsErrors,
+    launchOptions: ignoreHttpsErrors ? { args: ["--ignore-certificate-errors"] } : undefined,
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
   },
