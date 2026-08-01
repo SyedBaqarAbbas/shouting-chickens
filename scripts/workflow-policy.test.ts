@@ -50,6 +50,17 @@ describe("production Pages workflow policy", () => {
     expect(postdeploy).toContain("npm run test:postdeploy");
   });
 
+  it("does not leak candidate identity into release-fixture unit tests", () => {
+    const quality = requiredSection("  quality:", "  deploy:");
+    const unitTests = quality.indexOf("- name: Run unit and integration tests");
+    const releaseIdentity = quality.indexOf("- name: Record release identity");
+    const build = quality.indexOf("- name: Build, seal, and inspect production artifact");
+
+    expect(unitTests).toBeGreaterThanOrEqual(0);
+    expect(releaseIdentity).toBeGreaterThan(unitTests);
+    expect(build).toBeGreaterThan(releaseIdentity);
+  });
+
   it("requires separate mobile and installed-desktop candidate evidence before publishing", () => {
     const quality = requiredSection("  quality:", "  deploy:");
     expect(workflow).toContain("desktop_evidence_url:");
