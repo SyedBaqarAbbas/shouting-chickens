@@ -117,6 +117,7 @@ describe("CameraComposition", () => {
       "aria-pressed",
       "false",
     );
+    expect(document.querySelector(".camera-toggle__icon")).toHaveTextContent("◉");
     expect(screen.getByRole("status")).toHaveTextContent(/Camera off/);
     expect(screen.queryByTestId("camera-video")).not.toBeInTheDocument();
     expect(session.requestCameraFromGesture).not.toHaveBeenCalled();
@@ -152,6 +153,7 @@ describe("CameraComposition", () => {
 
     expect(screen.getByRole("button", { name: "Starting camera…" })).toBeDisabled();
     expect(screen.getByRole("status")).toHaveTextContent("Starting camera…");
+    expect(document.querySelector(".camera-toggle__icon")).toHaveTextContent("…");
 
     const active = resourceState("camera", "active");
     session.setCamera(active);
@@ -162,6 +164,7 @@ describe("CameraComposition", () => {
         "aria-pressed",
         "true",
       );
+      expect(document.querySelector(".camera-toggle__icon")).toHaveTextContent("●");
     });
     const video = screen.getByTestId<HTMLVideoElement>("camera-video");
     expect(video.srcObject).toBe(session.cameraStream);
@@ -186,6 +189,7 @@ describe("CameraComposition", () => {
         name: status === "denied" ? "Camera denied · Retry" : "Camera unavailable · Retry",
       }),
     ).toBeEnabled();
+    expect(document.querySelector(".camera-toggle__icon")).toHaveTextContent("!");
     expect(screen.queryByTestId("camera-video")).not.toBeInTheDocument();
     expect(session.getSnapshot().microphone.status).toBe("active");
   });

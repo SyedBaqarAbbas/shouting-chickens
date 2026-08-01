@@ -112,6 +112,7 @@ test("an allowed synthetic camera is cover-fit and only its video is mirrored", 
 
   await page.getByRole("button", { name: "Camera off · Enable" }).click();
   await expect(page.locator("#camera-status")).toContainText("Camera on");
+  await expect(page.locator(".camera-toggle__icon")).toHaveText("●");
 
   const video = page.getByTestId("camera-video");
   await expect(video).toBeVisible();
@@ -158,6 +159,7 @@ test("camera denial and unavailability preserve the running game fallback", asyn
         name: scenario.mode === "deny" ? "Camera denied · Retry" : "Camera unavailable · Retry",
       }),
     ).toBeEnabled();
+    await expect(page.locator(".camera-toggle__icon")).toHaveText("!");
     await expect(page.getByTestId("camera-video")).toHaveCount(0);
     await expect(surface).toHaveAttribute("data-simulation-phase", "running");
 

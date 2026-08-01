@@ -405,6 +405,12 @@ textarea {
   text-shadow: 0 0 12px rgb(98 220 148 / 75%);
 }
 
+.camera-toggle[data-camera-state="denied"] .camera-toggle__icon,
+.camera-toggle[data-camera-state="unavailable"] .camera-toggle__icon {
+  color: #ffb089;
+  text-shadow: 0 0 12px rgb(255 176 137 / 55%);
+}
+
 .camera-toggle__icon {
   color: #f5d567;
   font-size: 0.9rem;
@@ -838,6 +844,16 @@ textarea {
   font-size: 0.72rem;
 }
 
+.pause-button__compact-icon {
+  display: none;
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.pause-button[aria-pressed="true"] .pause-button__compact-icon {
+  color: #f5d567;
+}
+
 .best-stats,
 .settings-stats {
   display: grid;
@@ -1127,6 +1143,30 @@ textarea {
   .pause-button {
     padding-inline: 9px;
     font-size: 0.67rem;
+  }
+}
+
+@media (max-width: 450px), (max-height: 620px) {
+  .play-controls {
+    max-width: none;
+    flex-wrap: nowrap;
+  }
+
+  .pause-button,
+  .camera-toggle {
+    width: 44px;
+    min-width: 44px;
+    padding-inline: 0;
+    gap: 0;
+  }
+
+  .pause-button__compact-icon {
+    display: inline;
+  }
+
+  .pause-button__label,
+  .camera-toggle__label--compact {
+    display: none;
   }
 }
 
