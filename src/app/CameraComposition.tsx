@@ -139,6 +139,22 @@ function compactButtonCopy(state: CameraUiState): string {
   }
 }
 
+function compactIcon(state: CameraUiState): string {
+  switch (state) {
+    case "active":
+    case "paused":
+      return "●";
+    case "loading":
+      return "…";
+    case "denied":
+    case "unavailable":
+      return "!";
+    case "disabled":
+    case "stopped":
+      return "◉";
+  }
+}
+
 export function CameraComposition({
   hidden = false,
   onPreferenceChange,
@@ -280,11 +296,12 @@ export function CameraComposition({
           }
           aria-describedby="camera-status"
           aria-pressed={state === "active" || state === "paused"}
+          data-camera-state={state}
           disabled={!session || state === "loading"}
           onClick={handleCameraAction}
         >
           <span className="camera-toggle__icon" aria-hidden="true">
-            {state === "active" || state === "paused" ? "●" : "◉"}
+            {compactIcon(state)}
           </span>
           <span className="camera-toggle__label" aria-hidden="true">
             {buttonCopy(state)}

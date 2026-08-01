@@ -1605,7 +1605,10 @@ export function GameExperience({
             onClick={() => setManualPaused(true)}
             aria-label="Pause run"
           >
-            <span aria-hidden="true">Ⅱ</span> Pause
+            <span className="pause-button__compact-icon" aria-hidden="true">
+              Ⅱ
+            </span>
+            <span className="pause-button__label">Ⅱ Pause</span>
           </button>
           <button
             type="button"
@@ -1614,10 +1617,23 @@ export function GameExperience({
             aria-label={localData.settings.muted ? "Unmute game" : "Mute game"}
             aria-pressed={localData.settings.muted}
           >
-            {localData.settings.muted ? "Sound off" : "Sound on"}
+            <span className="pause-button__compact-icon" aria-hidden="true">
+              {localData.settings.muted ? "×" : "♪"}
+            </span>
+            <span className="pause-button__label">
+              {localData.settings.muted ? "Sound off" : "Sound on"}
+            </span>
           </button>
-          <button type="button" className="pause-button" onClick={openSettings}>
-            Settings
+          <button
+            type="button"
+            className="pause-button"
+            aria-label="Settings"
+            onClick={openSettings}
+          >
+            <span className="pause-button__compact-icon" aria-hidden="true">
+              ⚙
+            </span>
+            <span className="pause-button__label">Settings</span>
           </button>
         </div>
       ) : null}

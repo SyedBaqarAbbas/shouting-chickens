@@ -23,6 +23,7 @@ async function expectMountedWorld(page: import("@playwright/test").Page) {
 
 for (const viewport of [
   { name: "phone", width: 390, height: 844 },
+  { name: "large phone", width: 430, height: 932 },
   { name: "compact phone", width: 320, height: 568 },
   { name: "short phone", width: 390, height: 568 },
   { name: "desktop", width: 1280, height: 900 },
@@ -35,16 +36,18 @@ for (const viewport of [
     await expect(page.getByRole("heading", { name: "Shouting Chickens" })).toBeVisible();
     await expect(page.getByText("Keyboard + touch ready")).toBeVisible();
     const controls = [
-      page.getByRole("button", { name: "Pause run" }),
-      page.getByRole("button", { name: "Mute game" }),
-      page.getByRole("button", { name: "Settings" }),
-      page.locator(".camera-toggle"),
+      { name: "Pause", locator: page.getByRole("button", { name: "Pause run" }) },
+      { name: "Sound", locator: page.getByRole("button", { name: "Mute game" }) },
+      { name: "Settings", locator: page.getByRole("button", { name: "Settings" }) },
+      { name: "Camera", locator: page.locator(".camera-toggle") },
     ];
     for (const control of controls) {
-      await expect(control).toBeVisible();
+      await expect(control.locator).toBeVisible();
     }
     const box = await surface.boundingBox();
-    const controlBoxes = await Promise.all(controls.map((control) => control.boundingBox()));
+    const controlBoxes = await Promise.all(
+      controls.map((control) => control.locator.boundingBox()),
+    );
 
     expect(box).not.toBeNull();
     for (const controlBox of controlBoxes) {
@@ -70,7 +73,32 @@ for (const viewport of [
           firstBox.x + firstBox.width > secondBox.x &&
           firstBox.y < secondBox.y + secondBox.height &&
           firstBox.y + firstBox.height > secondBox.y;
-        expect(controlsOverlap).toBe(false);
+        expect(
+          controlsOverlap,
+          `${controls[first]!.name} overlaps ${controls[second]!.name} at ${viewport.name}`,
+        ).toBe(false);
+      }
+    }
+    if (viewport.width <= 450 || viewport.height <= 620) {
+      const eyebrowBox = await page.locator(".game-heading .eyebrow").boundingBox();
+      expect(eyebrowBox).not.toBeNull();
+      for (const [index, controlBox] of controlBoxes.entries()) {
+        expect(
+          Math.abs(controlBox!.y - controlBoxes[0]!.y),
+          `${controls[index]!.name} left the compact control row at ${viewport.name}`,
+        ).toBeLessThan(1);
+        expect(controlBox!.width).toBe(44);
+        expect(
+          controlBox!.y + controlBox!.height,
+          `${controls[index]!.name} overlaps the heading at ${viewport.name}`,
+        ).toBeLessThanOrEqual(eyebrowBox!.y - 4);
+      }
+      if (viewport.name === "phone") {
+        const soundButton = controls[1]!.locator;
+        await expect(soundButton.locator(".pause-button__compact-icon")).toHaveText("♪");
+        await soundButton.click();
+        await expect(soundButton).toHaveAttribute("aria-pressed", "true");
+        await expect(soundButton.locator(".pause-button__compact-icon")).toHaveText("×");
       }
     }
     expect(box!.width / box!.height).toBeCloseTo(432 / 768, 2);
