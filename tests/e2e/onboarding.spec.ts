@@ -288,7 +288,8 @@ test("first run is keyboard reachable and fallback reaches pause, results, and r
 
   await fallback.click();
   await page.getByRole("button", { name: "Start run" }).click();
-  await expect(page.getByText("3")).toBeVisible();
+  const countdown = page.getByRole("status").filter({ hasText: /^3$/ });
+  await expect(countdown).toHaveText("3");
   const surface = page.getByTestId("game-surface");
   await expect(surface).toHaveAttribute("data-runtime-state", "mounted");
   await expect(surface).toHaveAttribute("data-configured-input", "keyboard-touch");
