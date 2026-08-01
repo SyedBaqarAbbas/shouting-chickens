@@ -181,6 +181,40 @@ test("reference-phone evidence is query-gated, selectable, and strictly privacy-
   );
 });
 
+test("voice latency stays monotonic when the wall clock is corrected", async ({ page }) => {
+  test.setTimeout(30_000);
+  await installAdjustableWallClock(page);
+  await installSyntheticMedia(page, { camera: "deny", microphone: "allow" });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("./");
+  await page.getByRole("button", { name: "Enable microphone" }).click();
+  await completeValidCalibration(page);
+  await setSyntheticDbfs(page, -60);
+  await page.getByRole("button", { name: "Start run" }).click();
+
+  const surface = page.getByTestId("game-surface");
+  await expect(surface).toHaveAttribute("data-runtime-state", "mounted");
+  await expect(surface).toHaveAttribute("data-simulation-phase", "running");
+
+  await setSyntheticDbfs(page, -18);
+  await expect
+    .poll(() => performanceDiagnostics(surface).then((value) => value.voiceInputSamples))
+    .toBeGreaterThan(0);
+  await setSyntheticDbfs(page, -60);
+  await expect.poll(() => numericAttribute(surface, "data-input-level")).toBeLessThan(0.15);
+  const samplesBeforeCorrection = (await performanceDiagnostics(surface)).voiceInputSamples;
+
+  await shiftWallClock(page, 1_500);
+  await setSyntheticDbfs(page, -18);
+  await expect
+    .poll(() => performanceDiagnostics(surface).then((value) => value.voiceInputSamples))
+    .toBeGreaterThan(samplesBeforeCorrection);
+
+  const performance = await performanceDiagnostics(surface);
+  expect(performance.inputToIntentP95Ms).toBeLessThanOrEqual(100);
+  expect(performance.voiceInputToIntentP95Ms).toBeLessThanOrEqual(100);
+});
+
 test("real media adapters calibrate voice, drive jump and lift, recover, collide, score, and restart", async ({
   page,
 }) => {
@@ -444,6 +478,34 @@ async function completeValidCalibration(page: Page) {
   }
   await expect(page.getByRole("button", { name: "Use this calibration" })).toBeEnabled();
   await page.getByRole("button", { name: "Use this calibration" }).click();
+}
+
+async function installAdjustableWallClock(page: Page) {
+  await page.addInitScript(() => {
+    const systemNow = Date.now.bind(Date);
+    let offsetMs = 0;
+    const testWindow = window as typeof window & {
+      __shiftWallClockForTest?: (deltaMs: number) => void;
+    };
+    testWindow.__shiftWallClockForTest = (deltaMs) => {
+      offsetMs += deltaMs;
+    };
+    Date.now = () => systemNow() + offsetMs;
+  });
+}
+
+async function shiftWallClock(page: Page, deltaMs: number) {
+  await page.evaluate((nextDeltaMs) => {
+    const shift = (
+      window as typeof window & {
+        __shiftWallClockForTest?: (deltaMs: number) => void;
+      }
+    ).__shiftWallClockForTest;
+    if (!shift) {
+      throw new Error("Adjustable wall clock was not installed");
+    }
+    shift(nextDeltaMs);
+  }, deltaMs);
 }
 
 async function numericAttribute(locator: ReturnType<Page["locator"]>, attribute: string) {
