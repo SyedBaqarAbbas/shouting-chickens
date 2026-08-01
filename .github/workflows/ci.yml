@@ -20,6 +20,10 @@ on:
         description: HTTPS link to completed physical Android Chrome evidence
         required: false
         type: string
+      desktop_evidence_url:
+        description: HTTPS link to completed installed desktop-browser matrix
+        required: false
+        type: string
       candidate_manifest_sha:
         description: SHA-256 of the physically tested candidate artifact-manifest.json
         required: false
@@ -77,6 +81,7 @@ jobs:
         env:
           IOS_EVIDENCE_URL: ${{ inputs.ios_evidence_url }}
           ANDROID_EVIDENCE_URL: ${{ inputs.android_evidence_url }}
+          DESKTOP_EVIDENCE_URL: ${{ inputs.desktop_evidence_url }}
           CANDIDATE_MANIFEST_SHA: ${{ inputs.candidate_manifest_sha }}
         run: |
           if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
@@ -87,14 +92,14 @@ jobs:
             echo "Publishing requires the selected commit to be the current main tip." >&2
             exit 1
           fi
-          for evidence_url in "$IOS_EVIDENCE_URL" "$ANDROID_EVIDENCE_URL"; do
+          for evidence_url in "$IOS_EVIDENCE_URL" "$ANDROID_EVIDENCE_URL" "$DESKTOP_EVIDENCE_URL"; do
             if [[ "$evidence_url" != https://* || "$evidence_url" == *$'\n'* ]]; then
-              echo "Publishing requires separate HTTPS iOS and Android evidence links." >&2
+              echo "Publishing requires separate HTTPS iOS, Android, and desktop evidence links." >&2
               exit 1
             fi
           done
-          if [[ "$IOS_EVIDENCE_URL" == "$ANDROID_EVIDENCE_URL" ]]; then
-            echo "iOS and Android require separate evidence records." >&2
+          if [[ "$IOS_EVIDENCE_URL" == "$ANDROID_EVIDENCE_URL" || "$IOS_EVIDENCE_URL" == "$DESKTOP_EVIDENCE_URL" || "$ANDROID_EVIDENCE_URL" == "$DESKTOP_EVIDENCE_URL" ]]; then
+            echo "iOS, Android, and desktop browsers require separate evidence records." >&2
             exit 1
           fi
           if [[ ! "$CANDIDATE_MANIFEST_SHA" =~ ^[0-9a-f]{64}$ ]]; then
@@ -120,11 +125,14 @@ jobs:
       - name: Build, seal, and inspect production artifact
         run: npm run build
 
-      - name: Install Chromium
-        run: npx playwright install --with-deps chromium
+      - name: Install compatibility browsers
+        run: npx playwright install --with-deps chromium firefox webkit
 
       - name: Run development-boundary browser suite
         run: npm run test:e2e
+
+      - name: Run sealed cross-engine compatibility suite
+        run: npm run test:e2e:compatibility
 
       - name: Run sealed Pages-subpath acceptance suite
         run: npm run test:e2e:production
@@ -135,7 +143,7 @@ jobs:
       - name: Run Lighthouse smoke
         run: npm run test:lighthouse
 
-      - name: Run five-minute restart soak
+      - name: Run ten-minute restart soak
         run: npm run test:soak
 
       - name: Reinspect unchanged tested artifact
@@ -270,6 +278,7 @@ jobs:
         env:
           IOS_EVIDENCE_URL: ${{ inputs.ios_evidence_url }}
           ANDROID_EVIDENCE_URL: ${{ inputs.android_evidence_url }}
+          DESKTOP_EVIDENCE_URL: ${{ inputs.desktop_evidence_url }}
           CANDIDATE_MANIFEST_SHA: ${{ inputs.candidate_manifest_sha }}
         run: |
           {
@@ -277,6 +286,7 @@ jobs:
             echo
             printf '%s\n' "- iOS Safari: $IOS_EVIDENCE_URL"
             printf '%s\n' "- Android Chrome: $ANDROID_EVIDENCE_URL"
+            printf '%s\n' "- Installed desktop browsers: $DESKTOP_EVIDENCE_URL"
             printf '%s\n' "- Physically tested manifest SHA-256: \`$CANDIDATE_MANIFEST_SHA\`"
           } >> "$GITHUB_STEP_SUMMARY"
 

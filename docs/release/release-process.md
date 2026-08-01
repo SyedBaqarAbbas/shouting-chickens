@@ -46,9 +46,10 @@ object URLs, API-like paths, and cross-origin requests are never runtime-cached.
 
 ## 2. Collect real-device evidence
 
-Complete [mvp-release-checklist.md](mvp-release-checklist.md) on physical iOS Safari and Android
-Chrome against the exact candidate URL and SHA. Store separate durable HTTPS text records. Desktop
-emulation and Chromium automation cannot satisfy these rows.
+Complete [mvp-release-checklist.md](mvp-release-checklist.md) on physical iOS Safari, physical
+Android Chrome, and installed desktop Chrome, Edge, Firefox, and Safari against the exact candidate
+URL and SHA. Store separate durable HTTPS text records for iOS, Android, and the desktop matrix.
+Desktop emulation and Playwright-managed browser engines cannot satisfy these rows.
 
 The physical devices need a trusted secure-context URL before the production Pages gate can open.
 Use this candidate sequence without rebuilding:
@@ -71,8 +72,14 @@ Use this candidate sequence without rebuilding:
    npm run test:postdeploy
    ```
 
-5. Complete both physical checklists against that URL, record the exact version/SHA/manifest hash,
-   then remove the temporary candidate host or tunnel.
+5. Complete the two physical-device checklists and installed desktop-browser matrix against that
+   URL, record the exact version/SHA/manifest hash, then remove the temporary candidate host or
+   tunnel.
+
+The Android evidence must include the completed reference-phone recorder JSON from
+`?reference-evidence=1` and link the same-SHA CI restart-soak evidence. The recorder runs entirely
+in the candidate page without remote debugging and exposes no media, voice levels, or device
+identity.
 
 The candidate host may transport only the already sealed public files. It must not inject scripts,
 rewrite responses, proxy microphone/camera media, or receive raw calibration data. Verify the
@@ -80,8 +87,8 @@ manifest before and after hosting. The final workflow rebuilds the same source S
 and refuses deployment unless its artifact-manifest SHA exactly equals the physically tested
 candidate SHA.
 
-Do not publish if either device fails a required flow. Fix the issue on a new commit and repeat the
-candidate build and both device checks.
+Do not publish if either device or an installed desktop target fails a required flow. Fix the issue
+on a new commit and repeat the candidate build and all candidate checks.
 
 ## 3. Publish through the protected workflow
 
@@ -95,7 +102,7 @@ repository workflow itself has read-only permissions except:
 - all third-party actions are pinned to full commit SHAs;
 - deployment runs only from a manual `main` dispatch with `publish=true`;
 - the selected SHA must equal the current remote `main` tip;
-- separate HTTPS iOS and Android evidence URLs are mandatory.
+- separate HTTPS iOS, Android, and installed-desktop evidence URLs are mandatory.
 
 Pushes to `main` run the complete quality job but intentionally do not auto-deploy. Automatic
 promotion would bypass the physical-device evidence values and protected-environment review required
@@ -110,12 +117,14 @@ gh workflow run ci.yml \
   -f publish=true \
   -f ios_evidence_url=https://example.invalid/ios-evidence \
   -f android_evidence_url=https://example.invalid/android-evidence \
+  -f desktop_evidence_url=https://example.invalid/desktop-evidence \
   -f candidate_manifest_sha=<physically-tested-manifest-sha256>
 ```
 
 Replace the example URLs with the real records. The quality job runs clean install, audit, formatting,
-lint, typecheck, unit/integration tests, the ordinary E2E suite, sealed Pages-subpath acceptance,
-installability/offline/deferred-update acceptance, Lighthouse, and a true five-minute restart soak.
+lint, typecheck, unit/integration tests, the ordinary E2E suite, the sealed Chromium/Firefox/WebKit
+compatibility suite, sealed Pages-subpath acceptance, installability/offline/deferred-update
+acceptance, Lighthouse, and a true ten-minute restart soak.
 Only then does it:
 
 1. upload `mvp-<version>-<full-sha>` as the immutable tested artifact;
@@ -130,8 +139,9 @@ privacy/support/worklet paths, and starts a fallback run.
 ## 4. Review the result
 
 Keep the workflow run URL, deployment URL, version, full commit SHA, manifest SHA, iOS evidence URL,
-Android evidence URL, Lighthouse summary, soak JSON, and post-deploy result in the SHO-14 handoff.
-Physical results must remain explicitly separate from Chromium automation.
+Android evidence URL, desktop evidence URL, Lighthouse summary, soak JSON, and post-deploy result
+in the current release handoff. Physical results must remain explicitly separate from browser
+automation.
 
 ## Rollback
 

@@ -58,16 +58,17 @@ APP_VERSION="$(node -p "require('./package.json').version")"
 COMMIT_SHA="$(git rev-parse HEAD)"
 export APP_VERSION COMMIT_SHA
 npm run build
+npm run test:e2e:compatibility
 npm run test:e2e:production
 npm run test:e2e:pwa
 npm run test:lighthouse
 npm run test:soak
 ```
 
-The soak defaults to five real wall-clock minutes. CI refuses a shorter soak.
-SHO-14 automation is Chromium-only; real iOS Safari and Android Chrome evidence
-is separately required before the manual Pages publish gate. WebKit/Firefox
-automation is deferred to SHO-20.
+The soak defaults to ten real wall-clock minutes, and CI refuses a shorter
+run. The compatibility gate covers Chromium, Firefox, and WebKit. Real iOS
+Safari, Android Chrome, and installed desktop Chrome, Edge, Firefox, and Safari
+evidence remains separately required before the manual Pages publish gate.
 
 Use the [release process](docs/release/release-process.md),
 [physical-device checklist](docs/release/mvp-release-checklist.md), and
@@ -78,6 +79,12 @@ includes local Privacy and Support pages. The MVP processes microphone and
 optional camera input on-device. It does not upload raw media or persist
 recordings; calibration playback is transient and remains only in the current
 tab.
+
+Release testers can append `?reference-evidence=1` to the exact candidate URL
+to expose the non-persistent, privacy-safe ten-minute reference-phone recorder
+inside Settings. Arming resets its local performance histograms, and its input
+verdict uses voice-provenance samples rather than keyboard/touch fallback
+latency. It is intentionally absent from normal play.
 
 ## Local settings, privacy, and fallback controls
 

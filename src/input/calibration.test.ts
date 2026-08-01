@@ -160,6 +160,7 @@ function traceAt(quietDb: number, normalDb: number, loudDb: number, count = 12):
 function framesAt(dbfs: number, count: number): EnergyScalarFrame[] {
   const rms = 10 ** (dbfs / 20);
   return Array.from({ length: count }, () => ({
+    capturedAtMs: 0,
     clipped: false,
     dbfs,
     peak: rms,

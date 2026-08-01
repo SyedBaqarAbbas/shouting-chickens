@@ -26,6 +26,7 @@ describe("production Pages workflow policy", () => {
       "npm run test",
       "npm run build",
       "npm run test:e2e",
+      "npm run test:e2e:compatibility",
       "npm run test:e2e:production",
       "npm run test:e2e:pwa",
       "npm run test:lighthouse",
@@ -47,6 +48,18 @@ describe("production Pages workflow policy", () => {
     const postdeploy = workflow.slice(workflow.indexOf("  postdeploy:"));
     expect(postdeploy).toMatch(/needs:\s*\n\s*- quality\s*\n\s*- deploy/);
     expect(postdeploy).toContain("npm run test:postdeploy");
+  });
+
+  it("requires separate mobile and installed-desktop candidate evidence before publishing", () => {
+    const quality = requiredSection("  quality:", "  deploy:");
+    expect(workflow).toContain("desktop_evidence_url:");
+    expect(quality).toContain("DESKTOP_EVIDENCE_URL: ${{ inputs.desktop_evidence_url }}");
+    expect(quality).toContain(
+      'for evidence_url in "$IOS_EVIDENCE_URL" "$ANDROID_EVIDENCE_URL" "$DESKTOP_EVIDENCE_URL"',
+    );
+    expect(quality).toContain(
+      'if [[ "$IOS_EVIDENCE_URL" == "$ANDROID_EVIDENCE_URL" || "$IOS_EVIDENCE_URL" == "$DESKTOP_EVIDENCE_URL" || "$ANDROID_EVIDENCE_URL" == "$DESKTOP_EVIDENCE_URL" ]]',
+    );
   });
 
   it("pins actions and carries immutable release identity through deployment verification", () => {

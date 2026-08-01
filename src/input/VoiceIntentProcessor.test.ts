@@ -138,6 +138,7 @@ function createFastProcessor(overrides: { cooldownMs?: number } = {}): VoiceInte
 function frameAt(dbfs: number): EnergyScalarFrame {
   const rms = Math.min(1, 10 ** (dbfs / 20));
   return {
+    capturedAtMs: 0,
     clipped: dbfs >= -0.25,
     dbfs: Math.min(0, dbfs),
     peak: rms,

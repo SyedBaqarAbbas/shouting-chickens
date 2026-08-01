@@ -322,6 +322,7 @@ function feedStage(
 function frameAt(dbfs: number, clipped = false): EnergyScalarFrame {
   const rms = 10 ** (dbfs / 20);
   return {
+    capturedAtMs: 0,
     clipped,
     dbfs,
     peak: clipped ? 1 : rms,

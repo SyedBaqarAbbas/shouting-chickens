@@ -2,6 +2,8 @@ import { expect, test, type Page, type Response } from "@playwright/test";
 
 import {
   installSyntheticMedia,
+  loseSyntheticCamera,
+  loseSyntheticMicrophone,
   setSyntheticDbfs,
   setSyntheticMicrophoneMode,
   setSyntheticVisibility,
@@ -56,6 +58,127 @@ test("the sealed Pages-subpath artifact exposes release, privacy, and support id
   await expect(page.getByRole("heading", { name: "Install and offline play" })).toBeVisible();
 
   expect(failedResponses).toEqual([]);
+});
+
+test("reference-phone evidence is query-gated, selectable, and strictly privacy-safe", async ({
+  page,
+}) => {
+  test.setTimeout(45_000);
+  await installSyntheticMedia(page, { camera: "allow", microphone: "allow" });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("./");
+  await page.getByRole("button", { name: "Accessibility & settings" }).click();
+  await expect(page.getByRole("heading", { name: "Reference-phone evidence" })).toHaveCount(0);
+
+  await page.goto("./?reference-evidence=1");
+  await page.getByRole("button", { name: "Enable microphone" }).click();
+  await completeValidCalibration(page);
+  await setSyntheticDbfs(page, -60);
+  await page.getByRole("button", { name: "Start run" }).click();
+  const surface = page.getByTestId("game-surface");
+  await expect(surface).toHaveAttribute("data-runtime-state", "mounted");
+
+  await page.getByRole("button", { name: "Settings" }).click();
+  await expect(page.getByRole("heading", { name: "Reference-phone evidence" })).toBeVisible();
+  await page.getByRole("button", { name: "Arm evidence capture" }).click();
+  await page.getByRole("button", { name: "Return to paused run" }).click();
+  await page.getByRole("button", { name: "Camera off · Enable" }).click();
+  await expect(page.locator("#camera-status")).toContainText("Camera on");
+  await setSyntheticDbfs(page, -18);
+  await expect
+    .poll(() => performanceDiagnostics(surface).then((value) => value.inputSamples))
+    .toBeGreaterThan(0);
+  await setSyntheticDbfs(page, -60);
+  await expect(page.getByTestId("reference-evidence-progress")).toContainText(
+    "0:01 / 10:00 active",
+  );
+
+  await page.getByRole("button", { name: "Settings" }).click();
+  await page.getByRole("button", { name: "Refresh evidence" }).click();
+  const evidenceText = await page
+    .getByRole("textbox", { name: "Reference evidence JSON" })
+    .inputValue();
+  const evidence = requiredRecord(JSON.parse(evidenceText), "reference evidence");
+  expectExactKeys(evidence, [
+    "activeEvidenceMs",
+    "completedAtUtc",
+    "controlModeViolations",
+    "media",
+    "performance",
+    "qualifyingSamples",
+    "release",
+    "renderer",
+    "run",
+    "runtime",
+    "schemaVersion",
+    "startedAtUtc",
+    "totalSamples",
+    "verdict",
+    "visibilityInterruptions",
+    "wallElapsedMs",
+  ]);
+  expectExactKeys(requiredRecord(evidence.release, "release"), ["commit", "version"]);
+  expectExactKeys(requiredRecord(evidence.run, "run"), ["gameplayVersion", "seed"]);
+  const evidencePerformance = requiredRecord(evidence.performance, "performance");
+  expectExactKeys(evidencePerformance, [
+    "frameBudgetMet",
+    "frameOverBudgetRatio",
+    "frameP50Ms",
+    "frameP95Ms",
+    "frameSamples",
+    "inputBudgetMet",
+    "inputSamples",
+    "inputToIntentP95Ms",
+    "voiceInputBudgetMet",
+    "voiceInputSamples",
+    "voiceInputToIntentP95Ms",
+  ]);
+  expect(Number(evidencePerformance.voiceInputSamples)).toBeGreaterThan(0);
+  expect(Number(evidencePerformance.voiceInputToIntentP95Ms)).toBeLessThanOrEqual(100);
+  const runtime = requiredRecord(evidence.runtime, "runtime");
+  const media = requiredRecord(evidence.media, "media");
+  expectExactKeys(runtime, ["baseline", "final", "max", "stableMismatchCount"]);
+  expectExactKeys(media, ["baseline", "final", "max", "stableMismatchCount"]);
+  for (const key of ["baseline", "final", "max"] as const) {
+    expectExactKeys(requiredRecord(runtime[key], `runtime.${key}`), [
+      "activeBodies",
+      "activeParticles",
+      "activeTimers",
+      "audioActiveVoices",
+      "audioGraphNodes",
+      "eventListeners",
+      "inputListeners",
+      "pooledObjects",
+      "retainedCollectibleIds",
+      "retainedCollisionIds",
+      "retainedObstacleIds",
+      "retainedPrecisionLandingIds",
+      "sceneObjects",
+    ]);
+    expectExactKeys(requiredRecord(media[key], `media.${key}`), [
+      "activeAudioNodes",
+      "activeCameraTracks",
+      "activeMicrophoneTracks",
+      "activeTracks",
+      "lifecycleListeners",
+      "pendingAudioContexts",
+      "sessionSubscribers",
+      "trackListeners",
+    ]);
+  }
+  expectExactKeys(requiredRecord(evidence.verdict, "verdict"), [
+    "duration",
+    "frame",
+    "input",
+    "mediaResources",
+    "pass",
+    "runtimeResources",
+  ]);
+  expect(evidence.completedAtUtc).toBeNull();
+  expect(Number(evidence.qualifyingSamples)).toBeGreaterThan(0);
+  expect(evidenceText).not.toMatch(
+    /blob|dbfs|deviceId|label|normalizedInput|normalizedLevel|peak|raw|recording|rms/i,
+  );
 });
 
 test("real media adapters calibrate voice, drive jump and lift, recover, collide, score, and restart", async ({
@@ -119,6 +242,13 @@ test("real media adapters calibrate voice, drive jump and lift, recover, collide
   await expect.poll(() => numericAttribute(surface, "data-player-y")).toBeLessThan(groundedY - 5);
   await expect(surface).toHaveAttribute("data-player-animation", "flap");
   await expect.poll(() => numericAttribute(surface, "data-applied-lift")).toBeGreaterThan(0.8);
+  await expect
+    .poll(() => performanceDiagnostics(surface).then((diagnostics) => diagnostics.inputSamples))
+    .toBeGreaterThan(0);
+  const voicePerformance = await performanceDiagnostics(surface);
+  expect(voicePerformance.inputToIntentP95Ms).toBeLessThanOrEqual(100);
+  expect(voicePerformance.voiceInputSamples).toBeGreaterThan(0);
+  expect(voicePerformance.voiceInputToIntentP95Ms).toBeLessThanOrEqual(100);
   const heldAcceleration = await numericAttribute(surface, "data-control-acceleration-y");
   expect(await numericAttribute(surface, "data-input-level")).toBeGreaterThan(0.8);
   await setSyntheticDbfs(page, -60);
@@ -131,8 +261,12 @@ test("real media adapters calibrate voice, drive jump and lift, recover, collide
   await setSyntheticVisibility(page, "hidden");
   await expect(surface).toHaveAttribute("data-simulation-phase", "paused");
   await setSyntheticVisibility(page, "visible");
-  await page.getByRole("button", { name: "Resume microphone" }).click();
+  await expect(page.getByRole("dialog", { name: "Welcome back" })).toBeVisible();
+  await page.getByRole("button", { name: "Resume run" }).click();
   await expect(surface).toHaveAttribute("data-simulation-phase", "running");
+  await expect
+    .poll(() => syntheticMediaSnapshot(page).then((snapshot) => snapshot.audioResumeUserActivation))
+    .toContain(true);
 
   await page.setViewportSize({ width: 844, height: 390 });
   await expect(page.getByText("Rotate your device to play")).toBeVisible();
@@ -140,6 +274,7 @@ test("real media adapters calibrate voice, drive jump and lift, recover, collide
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.getByText("Rotate your device to play")).toBeHidden();
   await expect(surface).toHaveAttribute("data-simulation-phase", "running");
+  await expect(page.getByRole("button", { name: "Pause run" })).toBeFocused();
 
   await expect(page.getByRole("heading", { name: "Nice flight" })).toBeFocused({
     timeout: 25_000,
@@ -183,6 +318,76 @@ test("permission denial falls back to a playable keyboard and touch run", async 
   await expect.poll(() => numericAttribute(surface, "data-input-level")).toBeGreaterThan(0.9);
   await page.keyboard.up("Space");
   await expect(surface).toHaveAttribute("data-player-grounded", "false");
+});
+
+test("camera loss keeps the same run playable and supports an explicit retry", async ({ page }) => {
+  await installSyntheticMedia(page, { camera: "allow", microphone: "deny" });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("./");
+  await page.getByRole("button", { name: "Use keyboard or touch" }).click();
+  await page.getByRole("button", { name: "Start run" }).click();
+
+  const surface = page.getByTestId("game-surface");
+  await expect(surface).toHaveAttribute("data-simulation-phase", "running");
+  const generation = await numericAttribute(surface, "data-run-generation");
+  await page.getByRole("button", { name: "Camera off · Enable" }).click();
+  await expect(page.locator("#camera-status")).toContainText("Camera on");
+
+  await loseSyntheticCamera(page);
+  await expect(page.locator("#camera-status")).toContainText("Camera is unavailable");
+  await expect(page.getByRole("button", { name: "Camera unavailable · Retry" })).toBeEnabled();
+  await expect(surface).toHaveAttribute("data-simulation-phase", "running");
+  expect(await numericAttribute(surface, "data-run-generation")).toBe(generation);
+
+  await page.getByRole("button", { name: "Camera unavailable · Retry" }).click();
+  await expect(page.locator("#camera-status")).toContainText("Camera on");
+  await expect(page.getByTestId("camera-video")).toBeVisible();
+  await expect(surface).toHaveAttribute("data-simulation-phase", "running");
+  expect(await numericAttribute(surface, "data-run-generation")).toBe(generation);
+  await expect
+    .poll(() => syntheticMediaSnapshot(page))
+    .toMatchObject({
+      cameraRequests: 2,
+      cameraStops: 1,
+    });
+});
+
+test("device loss pauses the same run and supports retry or local fallback", async ({ page }) => {
+  test.setTimeout(60_000);
+  await installSyntheticMedia(page, { camera: "deny", microphone: "allow" });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("./");
+  await page.getByRole("button", { name: "Enable microphone" }).click();
+  await completeValidCalibration(page);
+  await setSyntheticDbfs(page, -60);
+  await page.getByRole("button", { name: "Start run" }).click();
+
+  const surface = page.getByTestId("game-surface");
+  await expect(surface).toHaveAttribute("data-simulation-phase", "running");
+  const generation = await numericAttribute(surface, "data-run-generation");
+
+  await loseSyntheticMicrophone(page);
+  await expect(surface).toHaveAttribute("data-simulation-phase", "paused");
+  await expect(page.getByRole("dialog", { name: "Microphone needs attention" })).toBeVisible();
+  await page.getByRole("button", { name: "Try microphone again" }).click();
+  await expect(surface).toHaveAttribute("data-simulation-phase", "running");
+  await expect(page.getByRole("button", { name: "Pause run" })).toBeFocused();
+  expect(await numericAttribute(surface, "data-run-generation")).toBe(generation);
+
+  await loseSyntheticMicrophone(page);
+  await expect(surface).toHaveAttribute("data-simulation-phase", "paused");
+  await page.getByRole("button", { name: "Continue with keyboard or touch" }).click();
+  await expect(surface).toHaveAttribute("data-simulation-phase", "running");
+  await expect(surface).toHaveAttribute("data-configured-input", "keyboard-touch");
+  await expect(page.getByRole("button", { name: "Pause run" })).toBeFocused();
+  expect(await numericAttribute(surface, "data-run-generation")).toBe(generation);
+
+  await expect
+    .poll(() => syntheticMediaSnapshot(page))
+    .toMatchObject({
+      microphoneRequests: 2,
+      microphoneStops: 2,
+    });
 });
 
 test("permission retry and invalid calibration recover into a valid voice run", async ({
@@ -259,6 +464,16 @@ async function runtimeResources(surface: ReturnType<Page["locator"]>) {
   };
 }
 
+async function performanceDiagnostics(surface: ReturnType<Page["locator"]>) {
+  const raw = await requiredAttribute(surface, "data-performance-diagnostics");
+  return JSON.parse(raw) as {
+    inputSamples: number;
+    inputToIntentP95Ms: number | null;
+    voiceInputSamples: number;
+    voiceInputToIntentP95Ms: number | null;
+  };
+}
+
 async function requiredAttribute(locator: ReturnType<Page["locator"]>, attribute: string) {
   const value = await locator.getAttribute(attribute);
   expect(value, `${attribute} must be present`).not.toBeNull();
@@ -267,4 +482,15 @@ async function requiredAttribute(locator: ReturnType<Page["locator"]>, attribute
 
 function shortCommit(commitSha: string) {
   return commitSha === "development" ? commitSha : commitSha.slice(0, 7);
+}
+
+function requiredRecord(value: unknown, label: string): Record<string, unknown> {
+  expect(value, label).not.toBeNull();
+  expect(typeof value, label).toBe("object");
+  expect(Array.isArray(value), label).toBe(false);
+  return value as Record<string, unknown>;
+}
+
+function expectExactKeys(record: Record<string, unknown>, expected: readonly string[]) {
+  expect(Object.keys(record).sort()).toEqual([...expected].sort());
 }

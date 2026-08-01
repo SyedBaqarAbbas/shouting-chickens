@@ -36,15 +36,20 @@ describe("browser ControlIntent sources", () => {
     await source.start();
     expect(source.diagnostics()).toEqual({ activeListeners: 2 });
 
-    target.dispatchEvent(new KeyboardEvent("keydown", { key: " ", cancelable: true }));
+    target.dispatchEvent(
+      withEventTimestamp(new KeyboardEvent("keydown", { key: " ", cancelable: true }), 25),
+    );
+    clock.advance(35);
 
     expect(source.latest()).toEqual({
-      atMs: 40,
+      atMs: 25,
       jumpPressed: true,
       lift: 1,
     });
+    expect(source.consumeInputLatencyMs()).toBe(15);
+    expect(source.consumeInputLatencyMs()).toBeNull();
     expect(source.latest()).toEqual({
-      atMs: 40,
+      atMs: 75,
       jumpPressed: false,
       lift: 1,
     });
@@ -124,12 +129,18 @@ describe("browser ControlIntent sources", () => {
     await source.start();
     expect(source.diagnostics()).toEqual({ activeListeners: 5 });
 
-    touchTarget.dispatchEvent(new Event("pointerdown", { cancelable: true }));
+    touchTarget.dispatchEvent(
+      withEventTimestamp(new Event("pointerdown", { cancelable: true }), 72),
+    );
+    clock.advance(28);
     expect(source.latest()).toEqual({
-      atMs: 100,
+      atMs: 72,
       jumpPressed: true,
       lift: 1,
     });
+    expect(source.consumeInputLatencySamples()).toEqual([
+      { latencyMs: 28, provenance: "keyboard-touch" },
+    ]);
 
     source.stop();
     expect(source.diagnostics()).toEqual({ activeListeners: 0 });
@@ -315,3 +326,8 @@ describe("browser ControlIntent sources", () => {
     combined.stop();
   });
 });
+
+function withEventTimestamp<T extends Event>(event: T, timeStamp: number): T {
+  Object.defineProperty(event, "timeStamp", { configurable: true, value: timeStamp });
+  return event;
+}

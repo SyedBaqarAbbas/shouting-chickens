@@ -24,6 +24,7 @@ describe("voice energy helpers", () => {
 
   it("reports only scalar energy and clipping state", () => {
     expect(energyScalarFromSamples(new Float32Array([0.25, -0.5, 1]))).toEqual({
+      capturedAtMs: 0,
       clipped: true,
       dbfs: expect.any(Number),
       peak: 1,
@@ -34,6 +35,7 @@ describe("voice energy helpers", () => {
   it("accepts only the worklet scalar message contract", () => {
     expect(
       parseEnergyScalarFrame({
+        capturedAtMs: 125,
         clipped: false,
         dbfs: -20,
         peak: 0.2,
@@ -41,6 +43,7 @@ describe("voice energy helpers", () => {
         type: "voice-energy",
       }),
     ).toEqual({
+      capturedAtMs: 125,
       clipped: false,
       dbfs: -20,
       peak: 0.2,
@@ -49,6 +52,7 @@ describe("voice energy helpers", () => {
     expect(parseEnergyScalarFrame({ samples: [0.1], type: "voice-energy" })).toBeNull();
     expect(
       parseEnergyScalarFrame({
+        capturedAtMs: 125,
         clipped: false,
         dbfs: 2,
         peak: 0.2,

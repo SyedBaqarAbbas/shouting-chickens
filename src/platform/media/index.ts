@@ -12,6 +12,7 @@ export type {
   MediaResourceState,
   MediaResourceStatus,
   MediaSessionDependencies,
+  MediaSessionDiagnostics,
   MediaSessionSnapshot,
   MediaStateIssue,
   MicrophoneAudioGraph,

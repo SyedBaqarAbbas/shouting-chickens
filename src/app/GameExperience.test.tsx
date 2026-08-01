@@ -13,6 +13,7 @@ import type {
 } from "../core";
 import { MemoryStorage } from "../core/storage";
 import { createGameRuntime } from "../game/createGame";
+import type { SafeLocalRuntimeDiagnostics } from "../game/PhaserGameRuntime";
 import type { CalibrationCapture, CalibrationCaptureSnapshot } from "../input";
 import {
   CURRENT_COPY_VERSION,
@@ -24,6 +25,7 @@ import {
 import type {
   BrowserMediaSession,
   MediaResourceStatus,
+  MediaSessionDiagnostics,
   MediaSessionSnapshot,
   MediaStateIssue,
 } from "../platform/media";
@@ -90,7 +92,20 @@ class FakeMediaSession {
   nextRequestResumeRequired = false;
 
   readonly close = vi.fn(async () => undefined);
-  readonly requestCameraFromGesture = vi.fn(async () => this.snapshot.camera);
+  readonly requestCameraFromGesture = vi.fn(async () => {
+    this.snapshot = {
+      ...this.snapshot,
+      camera: {
+        canFallback: true,
+        canRetry: false,
+        ignoredPreferences: [],
+        kind: "camera",
+        status: "active",
+      },
+    };
+    this.publish();
+    return this.snapshot.camera;
+  });
   readonly stopCamera = vi.fn();
   readonly requestMicrophoneFromGesture = vi.fn(async () => {
     this.setMicrophone(
@@ -111,6 +126,30 @@ class FakeMediaSession {
 
   readonly getSnapshot = () => this.snapshot;
   readonly getCameraStream = () => undefined;
+  readonly diagnostics = (): MediaSessionDiagnostics => {
+    const microphoneActive = this.snapshot.microphone.status === "active";
+    const cameraActive = this.snapshot.camera.status === "active";
+    return {
+      capabilities: {
+        audioContext: true,
+        audioWorklet: true,
+        camera: true,
+        deviceEnumeration: true,
+        microphone: true,
+      },
+      resources: {
+        activeAudioNodes: Number(microphoneActive),
+        activeCameraTracks: Number(cameraActive),
+        activeMicrophoneTracks: Number(microphoneActive),
+        activeTracks: Number(microphoneActive) + Number(cameraActive),
+        lifecycleListeners: 3,
+        pendingAudioContexts: 0,
+        sessionSubscribers: this.listeners.size,
+        trackListeners: (Number(microphoneActive) + Number(cameraActive)) * 3,
+      },
+      schemaVersion: 1,
+    };
+  };
   readonly subscribe = (listener: () => void) => {
     this.listeners.add(listener);
     return () => {
@@ -120,6 +159,20 @@ class FakeMediaSession {
 
   setMicrophone(status: MediaResourceStatus, issue?: MediaStateIssue, resumeRequired = false) {
     this.snapshot = snapshotWith(status, issue, this.snapshot.visibility, resumeRequired);
+    this.publish();
+  }
+
+  setCamera(status: MediaResourceStatus) {
+    this.snapshot = {
+      ...this.snapshot,
+      camera: {
+        canFallback: true,
+        canRetry: status !== "active",
+        ignoredPreferences: [],
+        kind: "camera",
+        status,
+      },
+    };
     this.publish();
   }
 
@@ -281,6 +334,7 @@ class FakeRuntime {
   readonly mount = vi.fn(async (container: HTMLElement) => {
     this.input = this.options.inputSourceFactory?.(container) ?? null;
     await this.input?.start();
+    await this.mountGate;
     if (this.fatalOnMount) {
       this.emit({
         error: {
@@ -295,8 +349,46 @@ class FakeRuntime {
   });
   readonly startRun = vi.fn();
   readonly setActiveInput = vi.fn();
+  readonly resetLocalPerformanceDiagnostics = vi.fn();
+  readonly localDiagnostics = vi.fn((): SafeLocalRuntimeDiagnostics => ({
+    capabilities: { gameAudio: true, phaserMounted: true },
+    performance: {
+      frameBudgetMet: true,
+      frameOverBudgetRatio: 0,
+      frameP50Ms: 16,
+      frameP95Ms: 18,
+      frameSamples: 1_000,
+      inputBudgetMet: true,
+      inputSamples: 10,
+      inputToIntentP95Ms: 42,
+      voiceInputBudgetMet: true,
+      voiceInputSamples: 10,
+      voiceInputToIntentP95Ms: 42,
+    },
+    release: { commit: "0123456789abcdef", version: "0.1.0" },
+    renderer: "webgl",
+    resources: {
+      activeBodies: 1,
+      activeParticles: 0,
+      activeTimers: 0,
+      audioActiveVoices: 0,
+      audioGraphNodes: 2,
+      eventListeners: 1,
+      inputListeners: 5,
+      pooledObjects: 72,
+      retainedCollectibleIds: 2,
+      retainedCollisionIds: 0,
+      retainedObstacleIds: 4,
+      retainedPrecisionLandingIds: 1,
+      sceneObjects: 86,
+    },
+    run: { gameplayVersion: "sho-17-progression-v1", seed: "authored-launch" },
+    schemaVersion: 1,
+  }));
   readonly pause = vi.fn();
   readonly resume = vi.fn();
+  readonly suspendGameAudioForBackground = vi.fn(async () => undefined);
+  readonly resumeGameAudioFromGesture = vi.fn(async () => true);
   readonly restart = vi.fn();
   readonly destroy = vi.fn(() => {
     this.input?.stop();
@@ -309,8 +401,9 @@ class FakeRuntime {
   });
 
   constructor(
-    private readonly options: NonNullable<Parameters<typeof createGameRuntime>[0]>,
+    readonly options: NonNullable<Parameters<typeof createGameRuntime>[0]>,
     fatalOnMount: boolean,
+    private readonly mountGate: Promise<void>,
   ) {
     this.fatalOnMount = fatalOnMount;
   }
@@ -320,10 +413,10 @@ class FakeRuntime {
   }
 }
 
-function createRuntimeHarness(fatalOnMount = false) {
+function createRuntimeHarness(fatalOnMount = false, mountGate = Promise.resolve()) {
   const runtimes: FakeRuntime[] = [];
   const factory = vi.fn((options: NonNullable<Parameters<typeof createGameRuntime>[0]> = {}) => {
-    const runtime = new FakeRuntime(options, fatalOnMount);
+    const runtime = new FakeRuntime(options, fatalOnMount, mountGate);
     runtimes.push(runtime);
     return runtime as unknown as ReturnType<typeof createGameRuntime>;
   });
@@ -338,6 +431,8 @@ function renderHarness(
   options: {
     fatalOnMount?: boolean;
     landscape?: boolean;
+    mountGate?: Promise<void>;
+    referenceEvidenceEnabled?: boolean;
     storage?: KeyValueStorage;
     strict?: boolean;
   } = {},
@@ -345,7 +440,7 @@ function renderHarness(
   const session = new FakeMediaSession();
   const captures: FakeCalibrationCapture[] = [];
   const voices: FakeVoiceInput[] = [];
-  const runtime = createRuntimeHarness(options.fatalOnMount);
+  const runtime = createRuntimeHarness(options.fatalOnMount, options.mountGate);
   const createCapture = vi.fn(() => {
     const capture = new FakeCalibrationCapture();
     captures.push(capture);
@@ -363,6 +458,7 @@ function renderHarness(
       createRuntime={runtime.factory}
       createVoiceInput={createVoice}
       landscape={options.landscape ?? false}
+      referenceEvidenceEnabled={options.referenceEvidenceEnabled}
       session={session.asSession()}
       storage={options.storage}
     />
@@ -741,6 +837,36 @@ describe("GameExperience run lifecycle", () => {
     expect(harness.runtime.runtimes).toHaveLength(0);
   });
 
+  it("restores pause-button focus after a landscape interruption clears", async () => {
+    const harness = renderHarness();
+    await startRun(harness);
+
+    harness.rerender(
+      <GameExperience
+        countdownStepMs={50}
+        createCalibrationCapture={harness.createCapture}
+        createRuntime={harness.runtime.factory}
+        createVoiceInput={harness.createVoice}
+        landscape
+        session={harness.session.asSession()}
+      />,
+    );
+    expect(screen.getByTestId("game-surface")).toHaveAttribute("inert");
+
+    harness.rerender(
+      <GameExperience
+        countdownStepMs={50}
+        createCalibrationCapture={harness.createCapture}
+        createRuntime={harness.runtime.factory}
+        createVoiceInput={harness.createVoice}
+        landscape={false}
+        session={harness.session.asSession()}
+      />,
+    );
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Pause run" })).toHaveFocus());
+  });
+
   it("composes manual pause, focuses its dialog, and resumes explicitly", async () => {
     const harness = renderHarness();
     const user = await startRun(harness);
@@ -761,6 +887,89 @@ describe("GameExperience run lifecycle", () => {
     await user.keyboard("{Escape}");
     await waitFor(() => expect(runtime.resume).toHaveBeenCalled());
     await waitFor(() => expect(screen.getByRole("button", { name: "Pause run" })).toHaveFocus());
+  });
+
+  it("latches a hidden run until the explicit background resume gesture", async () => {
+    const harness = renderHarness();
+    const user = await startRun(harness);
+    const runtime = harness.runtime.runtimes[0]!;
+    runtime.resume.mockClear();
+
+    act(() => harness.session.setVisibility("hidden"));
+    await waitFor(() => expect(runtime.suspendGameAudioForBackground).toHaveBeenCalledOnce());
+    expect(runtime.pause).toHaveBeenCalled();
+
+    act(() => harness.session.setVisibility("visible"));
+    const dialog = await screen.findByRole("dialog", { name: "Welcome back" });
+    expect(dialog).toBeVisible();
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: "Welcome back" })).toHaveFocus(),
+    );
+    expect(runtime.resume).not.toHaveBeenCalled();
+    expect(runtime.startRun).toHaveBeenCalledOnce();
+
+    await user.click(screen.getByRole("button", { name: "Resume run" }));
+    await waitFor(() => expect(runtime.resumeGameAudioFromGesture).toHaveBeenCalledOnce());
+    await waitFor(() => expect(runtime.resume).toHaveBeenCalled());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Pause run" })).toHaveFocus());
+    expect(runtime.restart).not.toHaveBeenCalled();
+  });
+
+  it("suspends shared output across a hide and show while the runtime is still mounting", async () => {
+    const mountGate = deferred<void>();
+    const harness = renderHarness({ mountGate: mountGate.promise });
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Use keyboard or touch" }));
+    await user.click(screen.getByRole("button", { name: "Start run" }));
+    await screen.findByTestId("game-surface");
+    await waitFor(() => expect(harness.runtime.runtimes[0]?.mount).toHaveBeenCalledOnce());
+    const runtime = harness.runtime.runtimes[0]!;
+    const audio = runtime.options.gameAudioDirector;
+    expect(audio).toBeDefined();
+    const suspend = vi.spyOn(audio!, "suspendForBackground");
+
+    act(() => harness.session.setVisibility("hidden"));
+    await waitFor(() => expect(suspend).toHaveBeenCalled());
+    act(() => harness.session.setVisibility("visible"));
+    await act(async () => mountGate.resolve());
+
+    await waitFor(() => expect(runtime.startRun).toHaveBeenCalledOnce());
+    expect(await screen.findByRole("dialog", { name: "Welcome back" })).toBeVisible();
+  });
+
+  it("retries a microphone lost behind the background latch before resuming", async () => {
+    const harness = renderHarness();
+    const user = await startRun(harness, true);
+    const runtime = harness.runtime.runtimes[0]!;
+    const voice = harness.voices[0]!;
+    harness.session.requestMicrophoneFromGesture.mockClear();
+    voice.start.mockClear();
+
+    act(() => harness.session.setVisibility("hidden"));
+    act(() => harness.session.setMicrophone("device-lost", "device-lost"));
+    act(() => harness.session.setVisibility("visible"));
+    await user.click(await screen.findByRole("button", { name: "Resume run" }));
+
+    await waitFor(() =>
+      expect(harness.session.requestMicrophoneFromGesture).toHaveBeenCalledOnce(),
+    );
+    await waitFor(() => expect(voice.start).toHaveBeenCalledOnce());
+    await waitFor(() => expect(runtime.resume).toHaveBeenCalled());
+    expect(screen.queryByRole("dialog", { name: "Welcome back" })).not.toBeInTheDocument();
+  });
+
+  it("retains the background latch when hidden from in-run settings", async () => {
+    const harness = renderHarness();
+    const user = await startRun(harness);
+    const runtime = harness.runtime.runtimes[0]!;
+
+    await user.click(screen.getByRole("button", { name: "Settings" }));
+    act(() => harness.session.setVisibility("hidden"));
+    act(() => harness.session.setVisibility("visible"));
+    await user.click(screen.getByRole("button", { name: "Return to paused run" }));
+
+    expect(await screen.findByRole("dialog", { name: "Welcome back" })).toBeVisible();
+    expect(runtime.restart).not.toHaveBeenCalled();
   });
 
   it("announces a paused phase once instead of repeating every throttled snapshot", async () => {
@@ -858,8 +1067,27 @@ describe("GameExperience run lifecycle", () => {
     expect(screen.getByRole("button", { name: "Quit to ready screen" })).toHaveFocus();
 
     await user.click(screen.getByRole("button", { name: "Restart run" }));
+    await waitFor(() => expect(runtime.resumeGameAudioFromGesture).toHaveBeenCalledOnce());
     await waitFor(() => expect(runtime.restart).toHaveBeenCalledOnce());
-    expect(screen.getByRole("button", { name: "Pause run" })).toBeVisible();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Pause run" })).toHaveFocus());
+  });
+
+  it("wakes a backgrounded results runtime from the explicit restart gesture", async () => {
+    const harness = renderHarness();
+    const user = await startRun(harness);
+    const runtime = harness.runtime.runtimes[0]!;
+
+    act(() => runtime.emit({ type: "ended", value: RUN_SUMMARY }));
+    runtime.resumeGameAudioFromGesture.mockClear();
+    act(() => harness.session.setVisibility("hidden"));
+    await waitFor(() => expect(runtime.suspendGameAudioForBackground).toHaveBeenCalledOnce());
+    act(() => harness.session.setVisibility("visible"));
+
+    expect(screen.queryByRole("dialog", { name: "Welcome back" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Restart run" }));
+
+    await waitFor(() => expect(runtime.resumeGameAudioFromGesture).toHaveBeenCalledOnce());
+    expect(runtime.restart).toHaveBeenCalledOnce();
   });
 
   it("closes results with Escape and returns focus to the ready screen", async () => {
@@ -916,6 +1144,7 @@ describe("GameExperience run lifecycle", () => {
     expect(runtime.destroy).not.toHaveBeenCalled();
     expect(runtime.setActiveInput).toHaveBeenLastCalledWith("keyboard-touch");
     expect(harness.session.useFallbackInput).toHaveBeenCalled();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Pause run" })).toHaveFocus());
   });
 
   it("preserves calibrated setup when quitting results to the ready screen", async () => {
@@ -941,6 +1170,22 @@ describe("GameExperience run lifecycle", () => {
 
     expect(harness.session.resumeFromGesture).toHaveBeenCalledOnce();
     await waitFor(() => expect(runtime.resume).toHaveBeenCalled());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Pause run" })).toHaveFocus());
+  });
+
+  it("restores run focus when an externally muted microphone becomes active", async () => {
+    const harness = renderHarness();
+    await startRun(harness, true);
+    const runtime = harness.runtime.runtimes[0]!;
+
+    act(() => harness.session.setMicrophone("suspended", "track-muted", false));
+    expect(screen.getByRole("heading", { name: "Microphone needs attention" })).toBeVisible();
+    expect(screen.getByText(/Waiting for the browser/)).toBeVisible();
+
+    act(() => harness.session.setMicrophone("active"));
+
+    await waitFor(() => expect(runtime.resume).toHaveBeenCalled());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Pause run" })).toHaveFocus());
   });
 
   it("ignores a late resume failure after continuing a run with fallback", async () => {
@@ -1114,6 +1359,50 @@ describe("GameExperience local settings and statistics", () => {
     expect(runtime.startRun).toHaveBeenCalledOnce();
     expect(runtime.restart).not.toHaveBeenCalled();
     expect(harness.runtime.runtimes).toHaveLength(1);
+  });
+
+  it("keeps reference-phone evidence controls out of the normal settings surface", async () => {
+    renderHarness();
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Use keyboard or touch" }));
+    await user.click(screen.getByRole("button", { name: "Accessibility & settings" }));
+
+    expect(
+      screen.queryByRole("heading", { name: "Reference-phone evidence" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("exposes selectable, privacy-safe reference evidence only in explicit evidence mode", async () => {
+    const harness = renderHarness({ referenceEvidenceEnabled: true });
+    const user = await startRun(harness, true);
+    act(() => harness.session.setCamera("active"));
+
+    await user.click(screen.getByRole("button", { name: "Settings" }));
+    expect(screen.getByRole("heading", { name: "Reference-phone evidence" })).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Arm evidence capture" }));
+    expect(harness.runtime.runtimes[0]?.resetLocalPerformanceDiagnostics).toHaveBeenCalledOnce();
+    await user.click(screen.getByRole("button", { name: "Return to paused run" }));
+
+    await waitFor(
+      () =>
+        expect(screen.getByTestId("reference-evidence-progress")).toHaveTextContent(
+          "0:01 / 10:00 active",
+        ),
+      { timeout: 2_500 },
+    );
+
+    await user.click(screen.getByRole("button", { name: "Settings" }));
+    await user.click(screen.getByRole("button", { name: "Refresh evidence" }));
+    const output = screen.getByRole("textbox", { name: "Reference evidence JSON" });
+    const evidenceJson = (output as HTMLTextAreaElement).value;
+    expect(evidenceJson).toContain('"schemaVersion": 1');
+    expect(evidenceJson).toContain('"frameP95Ms": 18');
+    expect(evidenceJson).not.toMatch(
+      /blob|dbfs|deviceId|label|normalizedInput|normalizedLevel|peak|raw|recording|rms/i,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Copy evidence JSON" }));
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(/evidence copied/i));
   });
 
   it("resets all game-owned storage immediately and preserves unrelated origin data", async () => {

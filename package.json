@@ -21,6 +21,7 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
+    "test:e2e:compatibility": "cross-env E2E_MODE=production E2E_SUITE=compatibility playwright test",
     "test:e2e:production": "cross-env E2E_MODE=production E2E_SUITE=release playwright test",
     "test:e2e:pwa": "cross-env E2E_MODE=production E2E_SUITE=pwa playwright test",
     "test:lighthouse": "node scripts/lighthouse-smoke.mjs",

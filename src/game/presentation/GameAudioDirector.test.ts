@@ -68,6 +68,7 @@ describe("GameAudioDirector", () => {
       audioCuesForTransition(BASE_SNAPSHOT, {
         ...BASE_SNAPSHOT,
         collectedCollectibleIds: ["feather"],
+        statistics: { ...BASE_SNAPSHOT.statistics, collectibles: 1 },
       }),
     ).toEqual(["feather"]);
     expect(
@@ -87,6 +88,7 @@ describe("GameAudioDirector", () => {
         deathReason: "hazard",
         landingCount: 1,
         collectedCollectibleIds: ["feather"],
+        statistics: { ...BASE_SNAPSHOT.statistics, collectibles: 1 },
         chicken: { ...BASE_SNAPSHOT.chicken, animation: "jump" },
       }),
     ).toEqual(["hazard"]);
@@ -95,6 +97,7 @@ describe("GameAudioDirector", () => {
         ...BASE_SNAPSHOT,
         landingCount: 1,
         collectedCollectibleIds: ["feather"],
+        statistics: { ...BASE_SNAPSHOT.statistics, collectibles: 1 },
         chicken: { ...BASE_SNAPSHOT.chicken, animation: "jump" },
       }),
     ).toEqual(["feather"]);
@@ -193,6 +196,91 @@ describe("GameAudioDirector", () => {
     director.destroy();
   });
 
+  it("requires an explicit gesture to resume after background suspension", async () => {
+    const context = createLifecycleContext("suspended");
+    const director = new GameAudioDirector(() => context.context);
+
+    expect(await director.resumeFromGesture()).toBe(true);
+    expect(context.resume).toHaveBeenCalledOnce();
+    expect(director.diagnostics()).toMatchObject({
+      graphNodes: 2,
+      state: "ready",
+    });
+
+    await director.suspendForBackground();
+    expect(context.suspend).toHaveBeenCalledOnce();
+    expect(director.diagnostics().state).toBe("suspended");
+
+    director.render(BASE_SNAPSHOT, {
+      muted: false,
+      reducedMotion: false,
+      screenShakeEnabled: true,
+    });
+    director.render(
+      {
+        ...BASE_SNAPSHOT,
+        chicken: { ...BASE_SNAPSHOT.chicken, animation: "jump" },
+      },
+      {
+        muted: false,
+        reducedMotion: false,
+        screenShakeEnabled: true,
+      },
+    );
+    expect(director.diagnostics().cueCount).toBe(0);
+
+    expect(await director.resumeFromGesture()).toBe(true);
+    expect(context.resume).toHaveBeenCalledTimes(2);
+    expect(director.diagnostics().state).toBe("ready");
+    director.destroy();
+  });
+
+  it("recovers a browser-closed output context on the next gesture", async () => {
+    const first = createLifecycleContext("running");
+    const second = createLifecycleContext("running");
+    const contexts = [first.context, second.context];
+    const director = new GameAudioDirector(() => contexts.shift() ?? null);
+
+    expect(await director.resumeFromGesture()).toBe(true);
+    first.setState("closed");
+    expect(director.diagnostics()).toMatchObject({ graphNodes: 0, state: "idle" });
+
+    expect(await director.resumeFromGesture()).toBe(true);
+    expect(director.diagnostics()).toMatchObject({ graphNodes: 2, state: "ready" });
+    director.destroy();
+  });
+
+  it("finishes a pending suspension before confirming a rapid gesture resume", async () => {
+    const context = createLifecycleContext("running", true);
+    const director = new GameAudioDirector(() => context.context);
+
+    expect(await director.resumeFromGesture()).toBe(true);
+    const suspension = director.suspendForBackground();
+    const resumed = director.resumeFromGesture();
+    context.finishPendingSuspend();
+
+    await suspension;
+    expect(await resumed).toBe(true);
+    expect(context.resume).toHaveBeenCalledTimes(2);
+    expect(director.diagnostics().state).toBe("ready");
+    director.destroy();
+  });
+
+  it("re-suspends a stale pending resume after the page is hidden", async () => {
+    const context = createLifecycleContext("suspended", false, true);
+    const director = new GameAudioDirector(() => context.context);
+
+    const staleResume = director.resumeFromGesture();
+    await director.suspendForBackground();
+    context.finishPendingResume();
+
+    expect(await staleResume).toBe(false);
+    await vi.waitFor(() => expect(context.suspend).toHaveBeenCalledOnce());
+    expect(context.currentState()).toBe("suspended");
+    expect(director.diagnostics().state).toBe("suspended");
+    director.destroy();
+  });
+
   it("hard-limits the graph, preempts active cues on transitions and reset, and closes it", () => {
     const masterValues: number[] = [];
     let gainNodeCount = 0;
@@ -214,6 +302,7 @@ describe("GameAudioDirector", () => {
     };
     const close = vi.fn(() => Promise.resolve());
     const context = {
+      addEventListener: vi.fn(),
       close,
       createGain: vi.fn(() => {
         const isMaster = gainNodeCount === 0;
@@ -255,7 +344,9 @@ describe("GameAudioDirector", () => {
       currentTime: 1,
       destination: {} as AudioDestinationNode,
       resume: vi.fn(() => Promise.resolve()),
+      removeEventListener: vi.fn(),
       state: "running",
+      suspend: vi.fn(() => Promise.resolve()),
     } as unknown as AudioContext;
     const director = new GameAudioDirector(() => context);
     const jump = {
@@ -334,3 +425,109 @@ describe("GameAudioDirector", () => {
     expect(director.diagnostics().state).toBe("destroyed");
   });
 });
+
+function createLifecycleContext(
+  initialState: AudioContextState,
+  deferSuspend = false,
+  deferResume = false,
+) {
+  const events = new EventTarget();
+  let state = initialState;
+  let finishResume: (() => void) | null = null;
+  let finishSuspend: (() => void) | null = null;
+  const gain = {
+    cancelScheduledValues: vi.fn(),
+    exponentialRampToValueAtTime: vi.fn(),
+    linearRampToValueAtTime: vi.fn(),
+    setValueAtTime: vi.fn(),
+  };
+  const makeNode = () => ({
+    connect: vi.fn(),
+    disconnect: vi.fn(),
+  });
+  const resume = vi.fn(() => {
+    if (!deferResume) {
+      state = "running";
+      events.dispatchEvent(new Event("statechange"));
+      return Promise.resolve();
+    }
+    return new Promise<void>((resolve) => {
+      finishResume = () => {
+        state = "running";
+        events.dispatchEvent(new Event("statechange"));
+        resolve();
+      };
+    });
+  });
+  const suspend = vi.fn(() => {
+    if (!deferSuspend) {
+      state = "suspended";
+      events.dispatchEvent(new Event("statechange"));
+      return Promise.resolve();
+    }
+    return new Promise<void>((resolve) => {
+      finishSuspend = () => {
+        state = "suspended";
+        events.dispatchEvent(new Event("statechange"));
+        resolve();
+      };
+    });
+  });
+  const context = {
+    addEventListener: events.addEventListener.bind(events),
+    close: vi.fn(async () => {
+      state = "closed";
+      events.dispatchEvent(new Event("statechange"));
+    }),
+    createGain: vi.fn(() => ({ ...makeNode(), gain }) as unknown as GainNode),
+    createOscillator: vi.fn(() => {
+      const node = makeNode();
+      return {
+        ...node,
+        addEventListener: vi.fn(),
+        frequency: {
+          exponentialRampToValueAtTime: vi.fn(),
+          setValueAtTime: vi.fn(),
+        },
+        start: vi.fn(),
+        stop: vi.fn(),
+        type: "sine",
+      } as unknown as OscillatorNode;
+    }),
+    createWaveShaper: vi.fn(
+      () =>
+        ({
+          ...makeNode(),
+          curve: null,
+          oversample: "none",
+        }) as unknown as WaveShaperNode,
+    ),
+    currentTime: 0,
+    destination: {} as AudioDestinationNode,
+    removeEventListener: events.removeEventListener.bind(events),
+    resume,
+    get state() {
+      return state;
+    },
+    suspend,
+  } as unknown as AudioContext;
+
+  return {
+    context,
+    currentState() {
+      return state;
+    },
+    finishPendingResume() {
+      finishResume?.();
+    },
+    finishPendingSuspend() {
+      finishSuspend?.();
+    },
+    resume,
+    setState(next: AudioContextState) {
+      state = next;
+      events.dispatchEvent(new Event("statechange"));
+    },
+    suspend,
+  };
+}

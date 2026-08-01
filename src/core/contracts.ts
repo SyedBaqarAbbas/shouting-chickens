@@ -22,6 +22,11 @@ export type InputFeedback = {
   provenance: InputProvenance;
 };
 
+export type InputLatencySample = Readonly<{
+  latencyMs: number;
+  provenance: InputProvenance;
+}>;
+
 export const NEUTRAL_CONTROL_INTENT: Readonly<ControlIntent> = Object.freeze({
   atMs: 0,
   jumpPressed: false,
@@ -31,6 +36,8 @@ export const NEUTRAL_CONTROL_INTENT: Readonly<ControlIntent> = Object.freeze({
 export interface InputSource {
   start(): Promise<void>;
   latest(): ControlIntent;
+  consumeInputLatencyMs?(): number | null;
+  consumeInputLatencySamples?(): readonly InputLatencySample[];
   getFeedback?(): InputFeedback;
   resetRunState?(): void;
   diagnostics?(): { activeListeners: number };

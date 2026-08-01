@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 
 import {
   SystemClock,
@@ -8,7 +8,8 @@ import {
   type InputSource,
 } from "../core";
 import { createGameRuntime } from "../game/createGame";
-import type { InputSourceFactory } from "../game/PhaserGameRuntime";
+import type { InputSourceFactory, SafeLocalRuntimeDiagnostics } from "../game/PhaserGameRuntime";
+import type { GameAudioDirector } from "../game/presentation/GameAudioDirector";
 import {
   CombinedInputSource,
   KeyboardInputSource,
@@ -21,6 +22,7 @@ export interface GameSurfaceProps {
   readonly blocked: boolean;
   readonly calibration: CalibrationProfile | null;
   readonly createRuntime?: typeof createGameRuntime;
+  readonly gameAudioDirector?: GameAudioDirector;
   readonly landscape: boolean;
   readonly muted?: boolean;
   readonly onEvent: GameEventListener;
@@ -33,31 +35,42 @@ export interface GameSurfaceProps {
   readonly voiceInput: InputSource | null;
 }
 
+export type GameSurfaceHandle = {
+  readLocalDiagnostics(): SafeLocalRuntimeDiagnostics | null;
+  resetLocalPerformanceDiagnostics(): void;
+  resumeGameAudioFromGesture(): Promise<boolean>;
+};
+
 const RUN_OPTIONS = {
   seed: "authored-launch",
   gameplayVersion: "sho-17-progression-v1",
 } as const;
 
-export function GameSurface({
-  activeInput,
-  blocked,
-  calibration,
-  createRuntime = createGameRuntime,
-  landscape,
-  muted = false,
-  onEvent,
-  onReady,
-  onVoiceUnavailable,
-  pauseReasons,
-  reducedMotion = false,
-  restartToken,
-  screenShakeEnabled = true,
-  voiceInput,
-}: GameSurfaceProps) {
+export const GameSurface = forwardRef<GameSurfaceHandle, GameSurfaceProps>(function GameSurface(
+  {
+    activeInput,
+    blocked,
+    calibration,
+    createRuntime = createGameRuntime,
+    gameAudioDirector,
+    landscape,
+    muted = false,
+    onEvent,
+    onReady,
+    onVoiceUnavailable,
+    pauseReasons,
+    reducedMotion = false,
+    restartToken,
+    screenShakeEnabled = true,
+    voiceInput,
+  },
+  ref,
+) {
   const containerRef = useRef<HTMLDivElement>(null);
   const runtimeRef = useRef<ReturnType<typeof createGameRuntime> | null>(null);
   const mountedRef = useRef(false);
   const pausedRef = useRef(pauseReasons.size > 0);
+  const hiddenRef = useRef(pauseReasons.has("hidden"));
   const restartTokenRef = useRef(restartToken);
   const [initialActiveInput] = useState(activeInput);
   const [systemReducedMotion] = useState(
@@ -72,6 +85,22 @@ export function GameSurface({
     reducedMotion: effectiveReducedMotion,
     screenShakeEnabled,
   });
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      readLocalDiagnostics() {
+        return runtimeRef.current?.localDiagnostics?.() ?? null;
+      },
+      resetLocalPerformanceDiagnostics() {
+        runtimeRef.current?.resetLocalPerformanceDiagnostics?.();
+      },
+      resumeGameAudioFromGesture() {
+        return runtimeRef.current?.resumeGameAudioFromGesture() ?? Promise.resolve(false);
+      },
+    }),
+    [],
+  );
 
   useEffect(() => {
     onEventRef.current = onEvent;
@@ -123,7 +152,7 @@ export function GameSurface({
 
         return new CombinedInputSource(sources);
       };
-      runtime = createRuntime({ clock, inputSourceFactory });
+      runtime = createRuntime({ clock, gameAudioDirector, inputSourceFactory });
       runtimeRef.current = runtime;
       runtime.setActiveInput(initialActiveInput);
       runtime.setPresentationPreferences?.(presentationRef.current);
@@ -147,6 +176,9 @@ export function GameSurface({
             calibration,
           });
 
+          if (hiddenRef.current) {
+            void runtime.suspendGameAudioForBackground();
+          }
           if (pausedRef.current) {
             runtime.pause();
           }
@@ -176,7 +208,7 @@ export function GameSurface({
       unsubscribe();
       runtime?.destroy();
     };
-  }, [calibration, createRuntime, initialActiveInput, voiceInput]);
+  }, [calibration, createRuntime, gameAudioDirector, initialActiveInput, voiceInput]);
 
   useEffect(() => {
     runtimeRef.current?.setActiveInput(activeInput);
@@ -192,17 +224,27 @@ export function GameSurface({
 
   useEffect(() => {
     pausedRef.current = pauseReasons.size > 0;
+    const hidden = pauseReasons.has("hidden");
     const runtime = runtimeRef.current;
     if (!runtime || !mountedRef.current) {
+      if (hidden) {
+        void gameAudioDirector?.suspendForBackground();
+      }
+      hiddenRef.current = hidden;
       return;
     }
+
+    if (hidden && !hiddenRef.current) {
+      void runtime.suspendGameAudioForBackground();
+    }
+    hiddenRef.current = hidden;
 
     if (pausedRef.current) {
       runtime.pause();
     } else {
       runtime.resume();
     }
-  }, [pauseReasons]);
+  }, [gameAudioDirector, pauseReasons]);
 
   useEffect(() => {
     const runtime = runtimeRef.current;
@@ -237,4 +279,4 @@ export function GameSurface({
       tabIndex={-1}
     />
   );
-}
+});

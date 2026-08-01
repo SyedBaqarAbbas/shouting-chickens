@@ -6,8 +6,10 @@ export type SyntheticMediaOptions = {
 };
 
 export type SyntheticMediaSnapshot = {
+  readonly audioResumeUserActivation: readonly boolean[];
   readonly cameraMode: "allow" | "deny" | "unavailable";
   readonly cameraRequests: number;
+  readonly cameraStops: number;
   readonly microphoneMode: "allow" | "deny" | "unavailable";
   readonly microphoneRequests: number;
   readonly microphoneStops: number;
@@ -20,26 +22,40 @@ export async function installSyntheticMedia(page: Page, options: SyntheticMediaO
     type Harness = {
       cameraMode: MediaMode;
       cameraRequests: number;
+      cameraStops: number;
       dbfs: number;
       microphoneMode: MediaMode;
       microphoneRequests: number;
       microphoneStops: number;
+      audioResumeUserActivation: boolean[];
       visibility: DocumentVisibilityState;
       workletUrls: string[];
       setDbfs(value: number): void;
+      loseCamera(): void;
+      loseMicrophone(): void;
       setMicrophoneMode(value: MediaMode): void;
       setVisibility(value: DocumentVisibilityState): void;
     };
 
+    let loseCameraImpl = () => {};
+    let loseMicrophoneImpl = () => {};
     const harness: Harness = {
       cameraMode: initialOptions.camera ?? "deny",
       cameraRequests: 0,
+      cameraStops: 0,
       dbfs: -60,
       microphoneMode: initialOptions.microphone ?? "allow",
       microphoneRequests: 0,
       microphoneStops: 0,
+      audioResumeUserActivation: [],
       visibility: "visible",
       workletUrls: [],
+      loseCamera() {
+        loseCameraImpl();
+      },
+      loseMicrophone() {
+        loseMicrophoneImpl();
+      },
       setDbfs(value) {
         harness.dbfs = value;
       },
@@ -78,6 +94,8 @@ export async function installSyntheticMedia(page: Page, options: SyntheticMediaO
         this.readyState = "ended";
         if (this.kind === "audio") {
           harness.microphoneStops += 1;
+        } else {
+          harness.cameraStops += 1;
         }
         this.dispatchEvent(new Event("ended"));
       }
@@ -133,6 +151,10 @@ export async function installSyntheticMedia(page: Page, options: SyntheticMediaO
     class SyntheticMessagePort extends EventTarget {
       private interval: number | undefined;
 
+      constructor(private readonly capturedAtMs: () => number) {
+        super();
+      }
+
       start() {
         if (this.interval !== undefined) {
           return;
@@ -142,6 +164,7 @@ export async function installSyntheticMedia(page: Page, options: SyntheticMediaO
           this.dispatchEvent(
             new MessageEvent("message", {
               data: {
+                capturedAtMs: this.capturedAtMs(),
                 clipped: rms >= 0.995,
                 dbfs: harness.dbfs,
                 peak: rms,
@@ -162,11 +185,19 @@ export async function installSyntheticMedia(page: Page, options: SyntheticMediaO
     }
 
     class SyntheticAudioWorkletNode extends SyntheticNode {
-      readonly port = new SyntheticMessagePort();
+      readonly port: SyntheticMessagePort;
+
+      constructor(context: SyntheticAudioContext) {
+        super();
+        this.port = new SyntheticMessagePort(() => context.currentTime * 1_000);
+      }
     }
 
     class SyntheticAudioContext extends EventTarget {
       state: AudioContextState = "running";
+      readonly destination = new SyntheticNode();
+      private accumulatedSeconds = 0;
+      private runningSinceMs = performance.now();
       readonly audioWorklet = {
         addModule: async (url: string) => {
           const absoluteUrl = new URL(url, document.baseURI).href;
@@ -186,17 +217,84 @@ export async function installSyntheticMedia(page: Page, options: SyntheticMediaO
         return new SyntheticAnalyser();
       }
 
+      createGain() {
+        const node = new SyntheticNode() as SyntheticNode & {
+          gain: {
+            cancelScheduledValues(): void;
+            exponentialRampToValueAtTime(): void;
+            linearRampToValueAtTime(): void;
+            setValueAtTime(): void;
+          };
+        };
+        node.gain = {
+          cancelScheduledValues() {},
+          exponentialRampToValueAtTime() {},
+          linearRampToValueAtTime() {},
+          setValueAtTime() {},
+        };
+        return node;
+      }
+
+      createOscillator() {
+        const node = new SyntheticNode() as SyntheticNode & {
+          frequency: {
+            exponentialRampToValueAtTime(): void;
+            setValueAtTime(): void;
+          };
+          start(): void;
+          stop(): void;
+          type: OscillatorType;
+        };
+        node.frequency = {
+          exponentialRampToValueAtTime() {},
+          setValueAtTime() {},
+        };
+        node.start = () => {};
+        node.stop = () => {
+          queueMicrotask(() => node.dispatchEvent(new Event("ended")));
+        };
+        node.type = "sine";
+        return node;
+      }
+
+      createWaveShaper() {
+        const node = new SyntheticNode() as SyntheticNode & {
+          curve: Float32Array | null;
+          oversample: OverSampleType;
+        };
+        node.curve = null;
+        node.oversample = "none";
+        return node;
+      }
+
+      get currentTime() {
+        return (
+          this.accumulatedSeconds +
+          (this.state === "running" ? (performance.now() - this.runningSinceMs) / 1_000 : 0)
+        );
+      }
+
       async resume() {
+        harness.audioResumeUserActivation.push(navigator.userActivation?.isActive ?? false);
+        if (this.state !== "running") {
+          this.runningSinceMs = performance.now();
+        }
         this.state = "running";
         this.dispatchEvent(new Event("statechange"));
       }
 
       async suspend() {
+        if (this.state === "running") {
+          this.accumulatedSeconds = this.currentTime;
+        }
         this.state = "suspended";
         this.dispatchEvent(new Event("statechange"));
       }
 
       async close() {
+        if (this.state === "running") {
+          this.accumulatedSeconds = this.currentTime;
+        }
         this.state = "closed";
         this.dispatchEvent(new Event("statechange"));
       }
@@ -235,7 +333,35 @@ export async function installSyntheticMedia(page: Page, options: SyntheticMediaO
           if (failure) {
             throw failure;
           }
-          return new SyntheticStream(new SyntheticTrack("video"));
+          const canvas = document.createElement("canvas");
+          canvas.width = 640;
+          canvas.height = 960;
+          const context = canvas.getContext("2d");
+          if (!context) {
+            throw new DOMException("Synthetic camera canvas unavailable", "NotReadableError");
+          }
+          context.fillStyle = "#31576f";
+          context.fillRect(0, 0, canvas.width, canvas.height);
+          context.fillStyle = "#f4ce64";
+          context.beginPath();
+          context.arc(210, 280, 120, 0, Math.PI * 2);
+          context.fill();
+          const stream = canvas.captureStream(5);
+          const track = stream.getVideoTracks()[0];
+          if (!track) {
+            throw new DOMException("Synthetic camera track unavailable", "NotReadableError");
+          }
+          const stop = track.stop.bind(track);
+          track.stop = () => {
+            if (track.readyState === "ended") {
+              return;
+            }
+            harness.cameraStops += 1;
+            stop();
+            track.dispatchEvent(new Event("ended"));
+          };
+          loseCameraImpl = () => track.stop();
+          return stream;
         }
 
         harness.microphoneRequests += 1;
@@ -243,7 +369,9 @@ export async function installSyntheticMedia(page: Page, options: SyntheticMediaO
         if (failure) {
           throw failure;
         }
-        return new SyntheticStream(new SyntheticTrack("audio"));
+        const track = new SyntheticTrack("audio");
+        loseMicrophoneImpl = () => track.stop();
+        return new SyntheticStream(track);
       },
       removeEventListener() {},
     };
@@ -287,6 +415,34 @@ export async function setSyntheticMicrophoneMode(
   }, mode);
 }
 
+export async function loseSyntheticMicrophone(page: Page) {
+  await page.evaluate(() => {
+    const harness = (
+      window as typeof window & {
+        __releaseMediaHarness?: { loseMicrophone(): void };
+      }
+    ).__releaseMediaHarness;
+    if (!harness) {
+      throw new Error("Release media harness was not installed");
+    }
+    harness.loseMicrophone();
+  });
+}
+
+export async function loseSyntheticCamera(page: Page) {
+  await page.evaluate(() => {
+    const harness = (
+      window as typeof window & {
+        __releaseMediaHarness?: { loseCamera(): void };
+      }
+    ).__releaseMediaHarness;
+    if (!harness) {
+      throw new Error("Release media harness was not installed");
+    }
+    harness.loseCamera();
+  });
+}
+
 export async function setSyntheticVisibility(page: Page, visibility: DocumentVisibilityState) {
   await page.evaluate((value) => {
     const harness = (
@@ -306,8 +462,10 @@ export async function syntheticMediaSnapshot(page: Page): Promise<SyntheticMedia
     const harness = (
       window as typeof window & {
         __releaseMediaHarness?: {
+          audioResumeUserActivation: boolean[];
           cameraMode: "allow" | "deny" | "unavailable";
           cameraRequests: number;
+          cameraStops: number;
           microphoneMode: "allow" | "deny" | "unavailable";
           microphoneRequests: number;
           microphoneStops: number;
@@ -319,8 +477,10 @@ export async function syntheticMediaSnapshot(page: Page): Promise<SyntheticMedia
       throw new Error("Release media harness was not installed");
     }
     return {
+      audioResumeUserActivation: harness.audioResumeUserActivation,
       cameraMode: harness.cameraMode,
       cameraRequests: harness.cameraRequests,
+      cameraStops: harness.cameraStops,
       microphoneMode: harness.microphoneMode,
       microphoneRequests: harness.microphoneRequests,
       microphoneStops: harness.microphoneStops,

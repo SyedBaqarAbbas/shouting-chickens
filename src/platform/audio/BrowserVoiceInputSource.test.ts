@@ -69,6 +69,7 @@ function createSessionHarness(options: { worklet?: boolean } = {}): SessionHarne
   const context = {
     audioWorklet: options.worklet ? { addModule } : undefined,
     createAnalyser: vi.fn(() => analyser),
+    currentTime: 0,
   } as unknown as AudioContext;
   let graph: MicrophoneAudioGraph | undefined = {
     context,
@@ -135,6 +136,76 @@ function processingOptions() {
 }
 
 describe("BrowserVoiceInputSource", () => {
+  it("measures acoustic onset through attack smoothing to intent creation", async () => {
+    const harness = createSessionHarness({ worklet: true });
+    const clock = new ManualClock(1_000);
+    const node = new FakeWorkletNode();
+    const input = new BrowserVoiceInputSource(
+      harness.session,
+      clock,
+      PROFILE,
+      { createAudioWorkletNode: () => node as unknown as AudioWorkletNode },
+      { attackMs: 35, cooldownMs: 100, releaseMs: 180 },
+    );
+    await input.start();
+
+    clock.advance(1);
+    node.port.emit({
+      ...energyScalarFromSamples(new Float32Array(32).fill(0.001), 1),
+      type: "voice-energy",
+    });
+    clock.advance(21);
+    node.port.emit({
+      ...energyScalarFromSamples(new Float32Array(32).fill(0.5), 17),
+      type: "voice-energy",
+    });
+    expect(input.latest().jumpPressed).toBe(false);
+    clock.advance(16);
+    node.port.emit({
+      ...energyScalarFromSamples(new Float32Array(32).fill(0.5), 34),
+      type: "voice-energy",
+    });
+
+    expect(input.latest().jumpPressed).toBe(true);
+    expect(input.consumeInputLatencySamples()).toEqual([{ latencyMs: 21, provenance: "voice" }]);
+    input.stop();
+  });
+
+  it("maps capture-time input to the app clock and rebases after suspension", async () => {
+    const harness = createSessionHarness({ worklet: true });
+    const clock = new ManualClock(10_000);
+    Object.assign(harness.context, { currentTime: 5 });
+    const node = new FakeWorkletNode();
+    const input = new BrowserVoiceInputSource(
+      harness.session,
+      clock,
+      PROFILE,
+      { createAudioWorkletNode: () => node as unknown as AudioWorkletNode },
+      processingOptions(),
+    );
+    await input.start();
+
+    clock.advance(200);
+    node.port.emit({
+      ...energyScalarFromSamples(new Float32Array(32).fill(0.5), 5_100),
+      type: "voice-energy",
+    });
+    expect(input.latest()).toMatchObject({ atMs: 10_100, jumpPressed: true });
+    expect(input.consumeInputLatencyMs()).toBe(100);
+
+    harness.setStatus("suspended");
+    clock.advance(120_000);
+    Object.assign(harness.context, { currentTime: 5.2 });
+    harness.setStatus("active");
+    clock.advance(100);
+    node.port.emit({
+      ...energyScalarFromSamples(new Float32Array(32).fill(0.5), 5_300),
+      type: "voice-energy",
+    });
+    expect(input.getLatestVoiceFrame()?.atMs).toBe(130_300);
+    input.stop();
+  });
+
   it("uses the worklet scalar path with no audible output connection", async () => {
     const harness = createSessionHarness({ worklet: true });
     const clock = new ManualClock();

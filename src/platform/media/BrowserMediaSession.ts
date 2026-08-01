@@ -59,6 +59,27 @@ export interface MediaSessionSnapshot {
   readonly resumeRequired: boolean;
 }
 
+export type MediaSessionDiagnostics = Readonly<{
+  schemaVersion: 1;
+  capabilities: {
+    audioContext: boolean;
+    audioWorklet: boolean;
+    camera: boolean;
+    deviceEnumeration: boolean;
+    microphone: boolean;
+  };
+  resources: {
+    activeAudioNodes: number;
+    activeCameraTracks: number;
+    activeMicrophoneTracks: number;
+    activeTracks: number;
+    lifecycleListeners: number;
+    pendingAudioContexts: number;
+    sessionSubscribers: number;
+    trackListeners: number;
+  };
+}>;
+
 export interface MicrophoneAudioGraph {
   readonly stream: MediaStream;
   readonly context: AudioContext;
@@ -141,6 +162,9 @@ export class BrowserMediaSession {
   private cameraRequest?: Promise<MediaResourceState>;
   private microphoneGeneration = 0;
   private cameraGeneration = 0;
+  private microphoneSuspendReason: "backgrounded" | "paused" | null = null;
+  private pendingMicrophoneSuspend:
+    Readonly<{ context: AudioContext; promise: Promise<void> }> | undefined;
   private closed = false;
   private closePromise?: Promise<void>;
 
@@ -185,6 +209,38 @@ export class BrowserMediaSession {
     };
   };
 
+  diagnostics(): MediaSessionDiagnostics {
+    const microphoneTracks = this.microphoneResource?.tracks.length ?? 0;
+    const cameraTracks = this.cameraResource?.tracks.length ?? 0;
+    const trackGroups =
+      (this.microphoneResource?.listeners.size ?? 0) + (this.cameraResource?.listeners.size ?? 0);
+    const mediaDevices = this.dependencies.mediaDevices;
+
+    return Object.freeze({
+      schemaVersion: 1,
+      capabilities: {
+        audioContext: Boolean(this.dependencies.createAudioContext),
+        audioWorklet: Boolean(this.microphoneResource?.context.audioWorklet),
+        camera: Boolean(mediaDevices?.getUserMedia),
+        deviceEnumeration: Boolean(mediaDevices?.enumerateDevices),
+        microphone: Boolean(mediaDevices?.getUserMedia && this.dependencies.createAudioContext),
+      },
+      resources: {
+        activeAudioNodes: this.microphoneResource?.nodes.size ?? 0,
+        activeCameraTracks: cameraTracks,
+        activeMicrophoneTracks: microphoneTracks,
+        activeTracks: microphoneTracks + cameraTracks,
+        lifecycleListeners:
+          (this.closed ? 0 : Number(Boolean(this.dependencies.document))) +
+          (this.closed ? 0 : Number(Boolean(mediaDevices))) +
+          Number(Boolean(this.microphoneResource)),
+        pendingAudioContexts: this.pendingMicrophoneContexts.size,
+        sessionSubscribers: this.listeners.size,
+        trackListeners: trackGroups * 3,
+      },
+    });
+  }
+
   getMicrophoneAudioGraph(): MicrophoneAudioGraph | undefined {
     const resource = this.microphoneResource;
     if (!resource) {
@@ -209,6 +265,7 @@ export class BrowserMediaSession {
     }
 
     resource.nodes.add(node);
+    this.publish();
     let registered = true;
 
     return () => {
@@ -219,6 +276,7 @@ export class BrowserMediaSession {
       registered = false;
       if (resource.nodes.delete(node)) {
         disconnectNode(node);
+        this.publish();
       }
     };
   }
@@ -239,6 +297,9 @@ export class BrowserMediaSession {
     if (unsupported) {
       this.setMicrophoneState(unsupported);
       return Promise.resolve(unsupported);
+    }
+    if (this.visibility !== "hidden") {
+      this.microphoneSuspendReason = null;
     }
 
     const generation = ++this.microphoneGeneration;
@@ -322,32 +383,74 @@ export class BrowserMediaSession {
 
     const microphone = this.microphoneResource;
     const microphoneGeneration = microphone?.generation;
-    let audioRunning = microphone === undefined;
+    const pendingSuspend =
+      microphone && this.pendingMicrophoneSuspend?.context === microphone.context
+        ? this.pendingMicrophoneSuspend.promise
+        : undefined;
+    this.microphoneSuspendReason = null;
 
     if (microphone) {
-      if (microphone.context.state === "running") {
-        audioRunning = true;
-      } else if (microphone.context.state !== "closed") {
+      let initialResume = Promise.resolve();
+      if (pendingSuspend || microphone.context.state !== "running") {
+        try {
+          initialResume = Promise.resolve(microphone.context.resume());
+        } catch {
+          initialResume = Promise.reject(new Error("Audio context resume failed"));
+        }
+      }
+      await Promise.allSettled([initialResume, pendingSuspend ?? Promise.resolve()]);
+
+      if (
+        this.closed ||
+        isDocumentHidden(this.dependencies.document) ||
+        this.microphoneSuspendReason !== null ||
+        this.microphoneResource !== microphone ||
+        microphone.generation !== microphoneGeneration
+      ) {
+        if (
+          !this.closed &&
+          (isDocumentHidden(this.dependencies.document) || this.microphoneSuspendReason !== null) &&
+          this.microphoneResource === microphone &&
+          microphone.context.state === "running"
+        ) {
+          await this.requestMicrophoneContextSuspend(microphone.context);
+        }
+        return this.snapshotValue;
+      }
+
+      if (
+        pendingSuspend &&
+        microphone.context.state !== "running" &&
+        microphone.context.state !== "closed"
+      ) {
         try {
           await microphone.context.resume();
-          audioRunning = isAudioContextRunning(microphone.context);
         } catch {
-          audioRunning = false;
+          // The suspended state below stays recoverable from another gesture.
         }
       }
 
       if (
         this.closed ||
         isDocumentHidden(this.dependencies.document) ||
+        this.microphoneSuspendReason !== null ||
         this.microphoneResource !== microphone ||
         microphone.generation !== microphoneGeneration
       ) {
+        if (
+          !this.closed &&
+          (isDocumentHidden(this.dependencies.document) || this.microphoneSuspendReason !== null) &&
+          this.microphoneResource === microphone &&
+          microphone.context.state === "running"
+        ) {
+          await this.requestMicrophoneContextSuspend(microphone.context);
+        }
         return this.snapshotValue;
       }
 
       const microphoneMuted = microphone.tracks.some((track) => track.muted);
-      audioRunning =
-        audioRunning &&
+      const audioRunning =
+        microphone.context.state === "running" &&
         !microphoneMuted &&
         microphone.tracks.every((track) => track.readyState === "live");
       setTracksEnabled(microphone.tracks, audioRunning);
@@ -372,6 +475,7 @@ export class BrowserMediaSession {
 
   async useFallbackInput(): Promise<void> {
     this.assertOpen();
+    this.microphoneSuspendReason = null;
     ++this.microphoneGeneration;
     this.microphoneRequest = undefined;
     const closing = this.releaseMicrophoneResource();
@@ -393,6 +497,7 @@ export class BrowserMediaSession {
     }
 
     this.closed = true;
+    this.microphoneSuspendReason = null;
     ++this.microphoneGeneration;
     ++this.cameraGeneration;
     this.microphoneRequest = undefined;
@@ -519,17 +624,27 @@ export class BrowserMediaSession {
     void resumeAttempt.then((resumed) => {
       this.handleInitialAudioResume(generation, resumed);
     });
-    const shouldSuspend = this.visibility === "hidden" || context.state !== "running";
+    const shouldSuspend =
+      this.visibility === "hidden" ||
+      this.microphoneSuspendReason !== null ||
+      context.state !== "running";
+    if (this.visibility === "hidden") {
+      this.microphoneSuspendReason = "backgrounded";
+    }
     setTracksEnabled(tracks, !shouldSuspend);
     const state = shouldSuspend
       ? createState(
           "microphone",
           "suspended",
-          this.visibility === "hidden" ? "backgrounded" : "audio-context-suspended",
+          this.microphoneSuspendReason ??
+            (this.visibility === "hidden" ? "backgrounded" : "audio-context-suspended"),
           ignoredPreferences,
         )
       : createState("microphone", "active", undefined, ignoredPreferences);
     this.setMicrophoneState(state);
+    if (shouldSuspend && context.state === "running") {
+      void this.requestMicrophoneContextSuspend(context);
+    }
     return state;
   }
 
@@ -654,7 +769,7 @@ export class BrowserMediaSession {
   }
 
   private handleTrackUnmuted(kind: MediaKind, generation: number): void {
-    if (this.closed || this.visibility === "hidden") {
+    if (this.closed || this.visibility === "hidden" || this.microphoneSuspendReason) {
       return;
     }
 
@@ -688,17 +803,51 @@ export class BrowserMediaSession {
       return;
     }
 
-    if (resource.context.state !== "running") {
+    if (resource.context.state === "running" && this.microphoneSuspendReason) {
       setTracksEnabled(resource.tracks, false);
       this.setMicrophoneState(
         createState(
           "microphone",
           "suspended",
-          this.visibility === "hidden" ? "backgrounded" : "audio-context-suspended",
+          this.microphoneSuspendReason,
           resource.ignoredPreferences,
         ),
       );
+      void this.requestMicrophoneContextSuspend(resource.context);
+      return;
     }
+
+    if (resource.context.state === "running") {
+      if (resource.tracks.some((track) => track.readyState !== "live")) {
+        this.handleTrackEnded("microphone", generation);
+        return;
+      }
+
+      if (resource.tracks.some((track) => track.muted)) {
+        setTracksEnabled(resource.tracks, false);
+        this.setMicrophoneState(
+          createState("microphone", "suspended", "track-muted", resource.ignoredPreferences),
+        );
+        return;
+      }
+
+      setTracksEnabled(resource.tracks, true);
+      this.setMicrophoneState(
+        createState("microphone", "active", undefined, resource.ignoredPreferences),
+      );
+      return;
+    }
+
+    setTracksEnabled(resource.tracks, false);
+    this.setMicrophoneState(
+      createState(
+        "microphone",
+        "suspended",
+        this.microphoneSuspendReason ??
+          (this.visibility === "hidden" ? "backgrounded" : "audio-context-suspended"),
+        resource.ignoredPreferences,
+      ),
+    );
   }
 
   private handleInitialAudioResume(generation: number, resumed: boolean): void {
@@ -707,6 +856,7 @@ export class BrowserMediaSession {
       !resumed ||
       this.closed ||
       this.visibility === "hidden" ||
+      this.microphoneSuspendReason !== null ||
       !resource ||
       resource.generation !== generation ||
       resource.context.state !== "running" ||
@@ -723,6 +873,7 @@ export class BrowserMediaSession {
   }
 
   private suspendResources(issue: "backgrounded" | "paused"): Promise<void> {
+    this.microphoneSuspendReason = issue;
     let audioSuspension = Promise.resolve();
     const microphone = this.microphoneResource;
     if (microphone) {
@@ -734,7 +885,7 @@ export class BrowserMediaSession {
         microphone.ignoredPreferences,
       );
       if (microphone.context.state === "running") {
-        audioSuspension = suspendContext(microphone.context);
+        audioSuspension = this.requestMicrophoneContextSuspend(microphone.context);
       }
     }
 
@@ -746,6 +897,21 @@ export class BrowserMediaSession {
 
     this.publish();
     return audioSuspension;
+  }
+
+  private requestMicrophoneContextSuspend(context: AudioContext): Promise<void> {
+    const pending = this.pendingMicrophoneSuspend;
+    if (pending?.context === context) {
+      return pending.promise;
+    }
+
+    const promise = suspendContext(context).finally(() => {
+      if (this.pendingMicrophoneSuspend?.promise === promise) {
+        this.pendingMicrophoneSuspend = undefined;
+      }
+    });
+    this.pendingMicrophoneSuspend = { context, promise };
+    return promise;
   }
 
   private restoreVisibleCamera(includePaused = false): void {
@@ -959,7 +1125,12 @@ export class BrowserMediaSession {
       microphone,
       resumeRequired:
         visibility === "visible" &&
-        ((microphone.status === "suspended" && microphone.issue !== "track-muted") ||
+        ((microphone.status === "suspended" &&
+          (microphone.issue !== "track-muted" ||
+            this.microphoneSuspendReason !== null ||
+            (context !== undefined &&
+              context.state !== "running" &&
+              context.state !== "closed"))) ||
           (camera.status === "suspended" && camera.issue !== "track-muted")),
       visibility,
     });

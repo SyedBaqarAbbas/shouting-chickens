@@ -7,7 +7,7 @@ an unverified redeploy of an old artifact.
 ## Before a release
 
 Keep the workflow URL, deployed URL, full commit SHA, application version, artifact-manifest SHA,
-PWA cache name, and physical-device evidence URLs. The artifact named
+PWA cache name, physical-device evidence URLs, and installed-desktop evidence URL. The artifact named
 `mvp-<version>-<full-sha>` is immutable evidence for that source revision.
 
 ## Local artifact rehearsal
@@ -35,9 +35,9 @@ identity rejection.
    edit the downloaded artifact.
 3. Confirm the resulting behavior matches the known-good release, then run every local and CI gate,
    including installability, offline reload, deferred update, production acceptance, Lighthouse,
-   soak, and physical iOS/Android checks.
+   soak, physical iOS/Android checks, and the installed desktop-browser matrix.
 4. Dispatch the release workflow from the current `main` tip with `publish=true`, separate HTTPS
-   iOS/Android evidence URLs, and the newly tested candidate manifest SHA.
+   iOS/Android/desktop evidence URLs, and the newly tested candidate manifest SHA.
 5. Require the protected `github-pages` environment approval. The deploy job consumes only the
    artifact produced by its prerequisite quality job.
 6. Run the automated postdeploy integrity/PWA smoke, then confirm an already-open client offers the

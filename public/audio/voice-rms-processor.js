@@ -1,5 +1,7 @@
 /* global AudioWorkletProcessor, registerProcessor */
 
+/* global currentTime */
+
 const MIN_DBFS = -120;
 const CLIPPING_AMPLITUDE = 0.995;
 
@@ -20,6 +22,7 @@ class VoiceRmsProcessor extends AudioWorkletProcessor {
       const dbfs = rms <= 0 ? MIN_DBFS : Math.min(0, Math.max(MIN_DBFS, 20 * Math.log10(rms)));
 
       this.port.postMessage({
+        capturedAtMs: currentTime * 1000,
         clipped: peak >= CLIPPING_AMPLITUDE,
         dbfs,
         peak,

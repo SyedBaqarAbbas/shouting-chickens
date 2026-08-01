@@ -1,4 +1,10 @@
-import type { Clock, ControlIntent, InputFeedback, InputSource } from "../../core";
+import type {
+  Clock,
+  ControlIntent,
+  InputFeedback,
+  InputLatencySample,
+  InputSource,
+} from "../../core";
 
 const JUMP_KEYS = new Set([" ", "ArrowUp"]);
 const INTERACTIVE_SELECTOR =
@@ -10,6 +16,8 @@ abstract class BrowserIntentSource implements InputSource {
   protected running = false;
   protected held = false;
   protected pendingJump = false;
+  protected pendingJumpAtMs = 0;
+  private pendingInputLatencyMs: number | null = null;
 
   constructor(
     protected readonly clock: Clock,
@@ -29,12 +37,13 @@ abstract class BrowserIntentSource implements InputSource {
     }
 
     const intent = {
-      atMs: this.clock.now(),
+      atMs: this.pendingJump ? this.pendingJumpAtMs : this.clock.now(),
       jumpPressed: this.pendingJump,
       lift: this.held ? 1 : 0,
     };
 
     this.pendingJump = false;
+    this.pendingJumpAtMs = 0;
     return intent;
   }
 
@@ -45,9 +54,32 @@ abstract class BrowserIntentSource implements InputSource {
     };
   }
 
+  consumeInputLatencyMs() {
+    const latency = this.pendingInputLatencyMs;
+    this.pendingInputLatencyMs = null;
+    return latency;
+  }
+
+  consumeInputLatencySamples(): readonly InputLatencySample[] {
+    const latencyMs = this.consumeInputLatencyMs();
+    return latencyMs === null ? [] : [{ latencyMs, provenance: "keyboard-touch" }];
+  }
+
+  protected markInputCreated(event: Event, createdAtMs = this.clock.now()) {
+    const eventAtMs = eventTimestampInClockDomain(event, createdAtMs);
+    const latencyMs = Math.max(0, createdAtMs - eventAtMs);
+    this.pendingInputLatencyMs =
+      this.pendingInputLatencyMs === null
+        ? latencyMs
+        : Math.max(this.pendingInputLatencyMs, latencyMs);
+    return eventAtMs;
+  }
+
   resetRunState() {
     this.held = false;
     this.pendingJump = false;
+    this.pendingJumpAtMs = 0;
+    this.pendingInputLatencyMs = null;
   }
 
   diagnostics() {
@@ -69,6 +101,8 @@ export class KeyboardInputSource extends BrowserIntentSource {
 
     if (!this.held && !keyboardEvent.repeat) {
       this.pendingJump = true;
+      const createdAtMs = this.clock.now();
+      this.pendingJumpAtMs = this.markInputCreated(keyboardEvent, createdAtMs);
     }
 
     this.held = true;
@@ -84,6 +118,7 @@ export class KeyboardInputSource extends BrowserIntentSource {
     this.held = false;
     if (!isInteractiveTarget(keyboardEvent.target)) {
       keyboardEvent.preventDefault();
+      this.markInputCreated(keyboardEvent);
     }
   };
 
@@ -114,6 +149,8 @@ export class KeyboardInputSource extends BrowserIntentSource {
     this.running = false;
     this.held = false;
     this.pendingJump = false;
+    this.pendingJumpAtMs = 0;
+    this.consumeInputLatencyMs();
   }
 }
 
@@ -148,6 +185,29 @@ export class OptionalInputSource implements InputSource {
       : { normalizedLevel: 0, provenance: "none" };
   }
 
+  consumeInputLatencyMs() {
+    return this.available ? (this.source.consumeInputLatencyMs?.() ?? null) : null;
+  }
+
+  consumeInputLatencySamples(): readonly InputLatencySample[] {
+    if (!this.available) {
+      return [];
+    }
+    if (this.source.consumeInputLatencySamples) {
+      return this.source.consumeInputLatencySamples();
+    }
+    const latencyMs = this.source.consumeInputLatencyMs?.();
+    if (latencyMs === undefined || latencyMs === null) {
+      return [];
+    }
+    return [
+      {
+        latencyMs,
+        provenance: this.source.getFeedback?.().provenance ?? "none",
+      },
+    ];
+  }
+
   resetRunState() {
     this.source.resetRunState?.();
   }
@@ -170,6 +230,8 @@ export class TouchInputSource extends BrowserIntentSource {
 
     if (!this.held) {
       this.pendingJump = true;
+      const createdAtMs = this.clock.now();
+      this.pendingJumpAtMs = this.markInputCreated(event, createdAtMs);
     }
 
     this.held = true;
@@ -178,6 +240,7 @@ export class TouchInputSource extends BrowserIntentSource {
   private readonly onPointerUp = (event: Event) => {
     event.preventDefault();
     this.held = false;
+    this.markInputCreated(event);
   };
 
   constructor(
@@ -209,6 +272,8 @@ export class TouchInputSource extends BrowserIntentSource {
     this.running = false;
     this.held = false;
     this.pendingJump = false;
+    this.pendingJumpAtMs = 0;
+    this.consumeInputLatencyMs();
   }
 }
 
@@ -256,6 +321,7 @@ export class CombinedInputSource implements InputSource {
     }
 
     let combined: ControlIntent = { atMs: 0, jumpPressed: false, lift: 0 };
+    let firstJumpAtMs: number | null = null;
     let feedback: InputFeedback = { normalizedLevel: 0, provenance: "none" };
 
     for (const source of this.sources) {
@@ -275,6 +341,9 @@ export class CombinedInputSource implements InputSource {
         jumpPressed: combined.jumpPressed || intent.jumpPressed,
         lift: Math.max(combined.lift, intent.lift),
       };
+      if (intent.jumpPressed) {
+        firstJumpAtMs = firstJumpAtMs === null ? intent.atMs : Math.min(firstJumpAtMs, intent.atMs);
+      }
       if (activity > feedback.normalizedLevel) {
         feedback = {
           normalizedLevel: activity,
@@ -283,12 +352,44 @@ export class CombinedInputSource implements InputSource {
       }
     }
 
+    if (firstJumpAtMs !== null) {
+      combined.atMs = firstJumpAtMs;
+    }
     this.feedback = feedback;
     return combined;
   }
 
   getFeedback(): InputFeedback {
     return { ...this.feedback };
+  }
+
+  consumeInputLatencyMs() {
+    let latency: number | null = null;
+    for (const source of this.sources) {
+      const sample = source.consumeInputLatencyMs?.();
+      if (sample !== undefined && sample !== null) {
+        latency = latency === null ? sample : Math.max(latency, sample);
+      }
+    }
+    return latency;
+  }
+
+  consumeInputLatencySamples(): readonly InputLatencySample[] {
+    const samples: InputLatencySample[] = [];
+    for (const source of this.sources) {
+      if (source.consumeInputLatencySamples) {
+        samples.push(...source.consumeInputLatencySamples());
+        continue;
+      }
+      const latencyMs = source.consumeInputLatencyMs?.();
+      if (latencyMs !== undefined && latencyMs !== null) {
+        samples.push({
+          latencyMs,
+          provenance: source.getFeedback?.().provenance ?? "none",
+        });
+      }
+    }
+    return samples;
   }
 
   resetRunState() {
@@ -354,4 +455,29 @@ function isInteractiveTarget(target: EventTarget | null): boolean {
 
 function clampInputLevel(level: number): number {
   return Number.isFinite(level) ? Math.min(1, Math.max(0, level)) : 0;
+}
+
+function eventTimestampInClockDomain(event: Event, nowMs: number): number {
+  const rawTimestamp = event.timeStamp;
+  if (!Number.isFinite(rawTimestamp) || rawTimestamp < 0) {
+    return nowMs;
+  }
+
+  const candidates = [rawTimestamp];
+  const timeOrigin = globalThis.performance?.timeOrigin;
+  if (Number.isFinite(timeOrigin)) {
+    candidates.push(timeOrigin + rawTimestamp);
+  }
+
+  let closest = nowMs;
+  let closestDistance = Number.POSITIVE_INFINITY;
+  for (const candidate of candidates) {
+    const distance = Math.abs(nowMs - candidate);
+    if (distance < closestDistance) {
+      closest = candidate;
+      closestDistance = distance;
+    }
+  }
+
+  return closestDistance <= 60_000 ? Math.min(nowMs, Math.max(0, closest)) : nowMs;
 }

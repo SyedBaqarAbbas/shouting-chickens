@@ -28,8 +28,12 @@ function useCompactLandscape() {
     };
 
     window.addEventListener("resize", updateOrientation);
+    window.addEventListener("orientationchange", updateOrientation);
+    window.visualViewport?.addEventListener("resize", updateOrientation);
     return () => {
       window.removeEventListener("resize", updateOrientation);
+      window.removeEventListener("orientationchange", updateOrientation);
+      window.visualViewport?.removeEventListener("resize", updateOrientation);
     };
   }, []);
 

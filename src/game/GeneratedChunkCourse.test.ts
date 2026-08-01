@@ -104,7 +104,7 @@ function runReachableTemplate(
 const CONTINUOUS_TEMPLATES = [
   {
     id: "continuous-a",
-    width: 900,
+    width: 200,
     minimumDifficulty: 1,
     maximumDifficulty: 1,
     challengeStage: "introduction",
@@ -114,13 +114,23 @@ const CONTINUOUS_TEMPLATES = [
     entry: { platformId: "ground" },
     exit: { platformId: "ground" },
     requiredCapability: "run",
-    platforms: [{ id: "ground", x: 0, width: 900, top: 584 }],
-    hazards: [],
+    platforms: [{ id: "ground", x: 0, width: 200, top: 584 }],
+    hazards: [
+      {
+        id: "retention-marker",
+        kind: "quiet-zone",
+        x: 100,
+        width: 20,
+        top: 0,
+        bottom: 1,
+        maximumLift: 1,
+      },
+    ],
     collectibles: [
       {
         id: "feather",
         kind: "feather",
-        x: 450,
+        x: 100,
         y: 520,
         radius: 10,
         optional: true,
@@ -135,7 +145,7 @@ const CONTINUOUS_TEMPLATES = [
   },
   {
     id: "continuous-b",
-    width: 900,
+    width: 200,
     minimumDifficulty: 1,
     maximumDifficulty: 1,
     challengeStage: "introduction",
@@ -145,8 +155,18 @@ const CONTINUOUS_TEMPLATES = [
     entry: { platformId: "ground" },
     exit: { platformId: "ground" },
     requiredCapability: "run",
-    platforms: [{ id: "ground", x: 0, width: 900, top: 584 }],
-    hazards: [],
+    platforms: [{ id: "ground", x: 0, width: 200, top: 584 }],
+    hazards: [
+      {
+        id: "retention-marker",
+        kind: "quiet-zone",
+        x: 100,
+        width: 20,
+        top: 0,
+        bottom: 1,
+        maximumLift: 1,
+      },
+    ],
     collectibles: [],
     warnings: [],
     route: [],
@@ -292,7 +312,7 @@ describe("GeneratedChunkCourse", () => {
     }
   });
 
-  it("runs a scripted reachable course through more than one hundred recycled chunks", () => {
+  it("bounds retained scoring identities through more than one hundred recycled chunks", () => {
     const course = new GeneratedChunkCourse({
       templates: CONTINUOUS_TEMPLATES,
       slotCount: 5,
@@ -304,23 +324,54 @@ describe("GeneratedChunkCourse", () => {
     simulation.start();
     const stablePool = simulation.diagnostics().pooledObjects;
     let lastDiagnostics: SimulationDiagnostics | null = null;
+    let maximumRetainedCollectibles = 0;
+    let maximumRetainedObstacles = 0;
+    let maximumRetainedPrecisionLandings = 0;
 
     for (let tick = 0; tick < 42_000; tick += 1) {
+      const before = simulation.snapshot();
       const snapshot = simulation.step({
         ...NEUTRAL_INTENT,
         atMs: tick * FIXED_STEP_MS,
+        jumpPressed: before.chicken.grounded,
       });
 
       expect(snapshot.phase).toBe("running");
-      expect(snapshot.chicken.grounded).toBe(true);
 
-      if (tick % 600 === 0) {
+      if (tick % 60 === 0) {
         lastDiagnostics = simulation.diagnostics();
+        maximumRetainedCollectibles = Math.max(
+          maximumRetainedCollectibles,
+          lastDiagnostics.retainedCollectibleIds,
+        );
+        maximumRetainedObstacles = Math.max(
+          maximumRetainedObstacles,
+          lastDiagnostics.retainedObstacleIds,
+        );
+        maximumRetainedPrecisionLandings = Math.max(
+          maximumRetainedPrecisionLandings,
+          lastDiagnostics.retainedPrecisionLandingIds,
+        );
         expect(lastDiagnostics.pooledObjects).toBe(stablePool);
+        expect(lastDiagnostics.retainedCollectibleIds).toBeLessThanOrEqual(
+          course.poolCapacities().collectibles,
+        );
+        expect(lastDiagnostics.retainedPrecisionLandingIds).toBeLessThanOrEqual(
+          course.poolCapacities().platforms,
+        );
+        expect(lastDiagnostics.retainedObstacleIds).toBeLessThanOrEqual(
+          course.poolCapacities().hazards,
+        );
       }
     }
 
     expect(simulation.snapshot().currentChunkIndex).toBeGreaterThan(100);
+    expect(simulation.snapshot().statistics.collectibles).toBeGreaterThan(100);
+    expect(simulation.snapshot().statistics.obstaclesCleared).toBeGreaterThan(100);
+    expect(simulation.snapshot().statistics.precisionLandings).toBeGreaterThan(100);
+    expect(maximumRetainedCollectibles).toBeGreaterThan(0);
+    expect(maximumRetainedObstacles).toBeGreaterThan(0);
+    expect(maximumRetainedPrecisionLandings).toBeGreaterThan(0);
     expect(
       course.diagnostics(simulation.snapshot().distance + CHICKEN_SCREEN_X).recycledChunks,
     ).toBe(simulation.snapshot().currentChunkIndex - 1);
