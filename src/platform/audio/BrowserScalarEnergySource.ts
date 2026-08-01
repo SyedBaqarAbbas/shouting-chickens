@@ -239,7 +239,7 @@ class AnalyserEnergyCapture implements EnergyCapture {
       }
 
       analyser.getFloatTimeDomainData(buffer);
-      sink(energyScalarFromSamples(buffer));
+      sink(energyScalarFromSamples(buffer, this.graph.context.currentTime * 1_000));
       this.frameHandle = this.requestFrame(sample);
     };
     this.frameHandle = this.requestFrame(sample);

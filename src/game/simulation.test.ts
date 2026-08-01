@@ -471,6 +471,10 @@ describe("ChickenSimulation", () => {
       activeTimers: 0,
       collisionZones: 2,
       pooledObjects: 2,
+      retainedCollectibleIds: 0,
+      retainedCollisionIds: 0,
+      retainedObstacleIds: 0,
+      retainedPrecisionLandingIds: 0,
       destroyed: false,
     });
   });

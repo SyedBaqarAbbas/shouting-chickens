@@ -7,8 +7,13 @@ const productionPreview = process.env.E2E_MODE === "production";
 const pagesBasePath = process.env.PAGES_BASE_PATH ?? "/shouting-chickens/";
 const ignoreHttpsErrors = process.env.PLAYWRIGHT_IGNORE_HTTPS_ERRORS === "1";
 const localOrigin = "http://127.0.0.1:4173";
-const soakDurationMs = Number(process.env.SOAK_DURATION_MS ?? 300_000);
+const soakDurationMs = Number(process.env.SOAK_DURATION_MS ?? 600_000);
+const launchArgs = [
+  ...(ignoreHttpsErrors ? ["--ignore-certificate-errors"] : []),
+  ...(suite === "soak" ? ["--enable-precise-memory-info"] : []),
+];
 const testDirectories: Record<string, string> = {
+  compatibility: "./tests/compatibility",
   development: "./tests/e2e",
   postdeploy: "./tests/postdeploy",
   pwa: "./tests/pwa",
@@ -16,6 +21,28 @@ const testDirectories: Record<string, string> = {
   soak: "./tests/soak",
 };
 const testDir = testDirectories[suite];
+const projects =
+  suite === "compatibility"
+    ? [
+        {
+          name: "chromium",
+          use: { ...devices["Desktop Chrome"] },
+        },
+        {
+          name: "firefox",
+          use: { ...devices["Desktop Firefox"] },
+        },
+        {
+          name: "webkit",
+          use: { ...devices["Desktop Safari"] },
+        },
+      ]
+    : [
+        {
+          name: "chromium",
+          use: { ...devices["Desktop Chrome"] },
+        },
+      ];
 
 if (!testDir) {
   throw new Error(`Unknown E2E_SUITE: ${suite}`);
@@ -27,20 +54,20 @@ if (
   suite === "soak" &&
   (!Number.isFinite(soakDurationMs) ||
     soakDurationMs <= 0 ||
-    (process.env.CI && soakDurationMs < 300_000))
+    (process.env.CI && soakDurationMs < 600_000))
 ) {
-  throw new Error("SOAK_DURATION_MS must be finite and at least 300000 in CI");
+  throw new Error("SOAK_DURATION_MS must be finite and at least 600000 in CI");
 }
 
 export default defineConfig({
   testDir,
   snapshotPathTemplate: "{testDir}/{testFilePath}-snapshots/{arg}{ext}",
-  fullyParallel: suite !== "soak",
+  fullyParallel: suite !== "soak" && suite !== "release",
   forbidOnly: Boolean(process.env.CI),
   retries: suite === "soak" || suite === "release" ? 0 : process.env.CI ? 2 : 0,
   reporter: process.env.CI ? [["line"], ["html", { open: "never" }]] : "list",
   timeout: suite === "soak" ? soakDurationMs + 60_000 : 30_000,
-  workers: suite === "soak" || suite === "pwa" ? 1 : undefined,
+  workers: suite === "soak" || suite === "pwa" || suite === "release" ? 1 : undefined,
   use: {
     baseURL:
       suite === "postdeploy"
@@ -49,16 +76,11 @@ export default defineConfig({
           ? `${localOrigin}${pagesBasePath}`
           : localOrigin,
     ignoreHTTPSErrors: ignoreHttpsErrors,
-    launchOptions: ignoreHttpsErrors ? { args: ["--ignore-certificate-errors"] } : undefined,
+    launchOptions: launchArgs.length > 0 ? { args: launchArgs } : undefined,
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
   },
-  projects: [
-    {
-      name: "chromium",
-      use: { ...devices["Desktop Chrome"] },
-    },
-  ],
+  projects,
   webServer:
     suite === "postdeploy"
       ? undefined

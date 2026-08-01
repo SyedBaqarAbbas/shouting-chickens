@@ -216,6 +216,54 @@ describe("BrowserMediaSession", () => {
     expect(harness.session.getCameraStream()).toBe(asMediaStream(harness.cameraStream));
   });
 
+  it("reports bounded resource and capability diagnostics without media details", async () => {
+    const harness = createHarness();
+    const unsubscribe = harness.session.subscribe(() => undefined);
+    await harness.session.requestMicrophoneFromGesture();
+    await harness.session.requestCameraFromGesture();
+    const extraNode = new FakeAudioNode();
+    const unregister = harness.session.registerMicrophoneNode(extraNode as unknown as AudioNode);
+
+    expect(harness.session.diagnostics()).toEqual({
+      schemaVersion: 1,
+      capabilities: {
+        audioContext: true,
+        audioWorklet: false,
+        camera: true,
+        deviceEnumeration: true,
+        microphone: true,
+      },
+      resources: {
+        activeAudioNodes: 2,
+        activeCameraTracks: 1,
+        activeMicrophoneTracks: 1,
+        activeTracks: 2,
+        lifecycleListeners: 3,
+        pendingAudioContexts: 0,
+        sessionSubscribers: 1,
+        trackListeners: 6,
+      },
+    });
+    expect(JSON.stringify(harness.session.diagnostics())).not.toMatch(
+      /deviceId|label|raw|rms|voice/i,
+    );
+
+    unregister();
+    expect(harness.session.diagnostics().resources.activeAudioNodes).toBe(1);
+    unsubscribe();
+    await harness.session.close();
+    expect(harness.session.diagnostics().resources).toEqual({
+      activeAudioNodes: 0,
+      activeCameraTracks: 0,
+      activeMicrophoneTracks: 0,
+      activeTracks: 0,
+      lifecycleListeners: 0,
+      pendingAudioContexts: 0,
+      sessionSubscribers: 0,
+      trackListeners: 0,
+    });
+  });
+
   it("stops only video when optional camera composition is turned off", async () => {
     const harness = createHarness();
 
@@ -506,11 +554,12 @@ describe("BrowserMediaSession", () => {
     expect(harness.microphoneTrack.enabled).toBe(false);
   });
 
-  it("does not re-enable microphone capture when the page hides during resume", async () => {
+  it("requires another gesture when the page hides and returns during a pending resume", async () => {
     const harness = createHarness();
     await harness.session.requestMicrophoneFromGesture();
     const context = requireContext(harness);
     await harness.session.suspend();
+    context.suspend.mockClear();
     const resumed = deferred<void>();
     context.resume.mockImplementationOnce(async () => {
       await resumed.promise;
@@ -519,14 +568,79 @@ describe("BrowserMediaSession", () => {
 
     const resume = harness.session.resumeFromGesture();
     harness.document.setVisibility("hidden");
+    harness.document.setVisibility("visible");
     resumed.resolve();
     await resume;
 
     expect(harness.session.getSnapshot()).toMatchObject({
       microphone: { issue: "backgrounded", status: "suspended" },
-      visibility: "hidden",
+      resumeRequired: true,
+      visibility: "visible",
     });
     expect(harness.microphoneTrack.enabled).toBe(false);
+    expect(context.suspend).toHaveBeenCalledOnce();
+    expect(context.state).toBe("suspended");
+
+    await harness.session.resumeFromGesture();
+    expect(harness.session.getSnapshot().microphone.status).toBe("active");
+    expect(harness.microphoneTrack.enabled).toBe(true);
+  });
+
+  it("finishes a pending background suspension before confirming the resume gesture", async () => {
+    const harness = createHarness();
+    await harness.session.requestMicrophoneFromGesture();
+    const context = requireContext(harness);
+    const suspended = deferred<void>();
+    context.suspend.mockImplementationOnce(async () => {
+      await suspended.promise;
+      context.transitionTo("suspended");
+    });
+    context.resume.mockClear();
+
+    harness.document.setVisibility("hidden");
+    harness.document.setVisibility("visible");
+    const resume = harness.session.resumeFromGesture();
+    suspended.resolve();
+    await resume;
+
+    expect(context.resume).toHaveBeenCalledTimes(2);
+    expect(context.state).toBe("running");
+    expect(harness.microphoneTrack.enabled).toBe(true);
+    expect(harness.session.getSnapshot()).toMatchObject({
+      microphone: { status: "active" },
+      resumeRequired: false,
+      visibility: "visible",
+    });
+  });
+
+  it("retries resume after a pending suspension outlives the first resume attempt", async () => {
+    const harness = createHarness();
+    await harness.session.requestMicrophoneFromGesture();
+    const context = requireContext(harness);
+    const suspended = deferred<void>();
+    context.suspend.mockImplementationOnce(async () => {
+      await suspended.promise;
+      context.transitionTo("suspended");
+    });
+    context.resume.mockReset();
+    context.resume
+      .mockRejectedValueOnce(new Error("Suspend still in flight"))
+      .mockImplementationOnce(async () => context.transitionTo("running"));
+
+    harness.document.setVisibility("hidden");
+    harness.document.setVisibility("visible");
+    const resume = harness.session.resumeFromGesture();
+    suspended.resolve();
+    await resume;
+
+    expect(context.resume).toHaveBeenCalledTimes(2);
+    expect(context.state).toBe("running");
+    expect(harness.microphoneTrack.enabled).toBe(true);
+    expect(harness.session.getSnapshot()).toMatchObject({
+      microphone: { status: "active" },
+      resumeRequired: false,
+      visibility: "visible",
+    });
   });
 
   it("resumes an explicitly paused camera without requiring microphone resources", async () => {
@@ -580,6 +694,25 @@ describe("BrowserMediaSession", () => {
     expect(harness.microphoneTrack.stop).toHaveBeenCalledOnce();
   });
 
+  it("restores a live microphone when an interrupted context resumes automatically", async () => {
+    const harness = createHarness();
+    await harness.session.requestMicrophoneFromGesture();
+    const context = requireContext(harness);
+
+    context.transitionTo("interrupted");
+    expect(harness.microphoneTrack.enabled).toBe(false);
+
+    context.transitionTo("running");
+
+    expect(harness.microphoneTrack.enabled).toBe(true);
+    expect(harness.session.getSnapshot()).toMatchObject({
+      audioContext: "running",
+      microphone: { status: "active" },
+      resumeRequired: false,
+      visibility: "visible",
+    });
+  });
+
   it("waits for a muted track to recover instead of treating it as gesture-resumable", async () => {
     const harness = createHarness();
     await harness.session.requestMicrophoneFromGesture();
@@ -598,6 +731,34 @@ describe("BrowserMediaSession", () => {
 
     harness.microphoneTrack.unmute();
     expect(harness.session.getSnapshot().microphone.status).toBe("active");
+  });
+
+  it("keeps background recovery gesture-resumable when mute events overlap visibility", async () => {
+    const harness = createHarness();
+    await harness.session.requestMicrophoneFromGesture();
+    const context = requireContext(harness);
+
+    harness.document.setVisibility("hidden");
+    harness.microphoneTrack.mute();
+    harness.microphoneTrack.unmute();
+    harness.document.setVisibility("visible");
+
+    expect(harness.session.getSnapshot()).toMatchObject({
+      audioContext: "suspended",
+      microphone: { issue: "track-muted", status: "suspended" },
+      resumeRequired: true,
+      visibility: "visible",
+    });
+    expect(context.state).toBe("suspended");
+    expect(harness.microphoneTrack.enabled).toBe(false);
+
+    await harness.session.resumeFromGesture();
+    expect(harness.session.getSnapshot()).toMatchObject({
+      audioContext: "running",
+      microphone: { status: "active" },
+      resumeRequired: false,
+    });
+    expect(harness.microphoneTrack.enabled).toBe(true);
   });
 
   it("marks only the ended resource as device-lost", async () => {

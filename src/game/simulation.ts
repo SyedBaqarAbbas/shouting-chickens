@@ -92,6 +92,10 @@ export type SimulationDiagnostics = {
   activeTimers: number;
   collisionZones: number;
   pooledObjects: number;
+  retainedCollectibleIds: number;
+  retainedCollisionIds: number;
+  retainedObstacleIds: number;
+  retainedPrecisionLandingIds: number;
   destroyed: boolean;
 };
 
@@ -339,7 +343,9 @@ export class ChickenSimulation {
   private readonly clearedObstacleIds = new Set<string>();
   private interactionEvents: GameplayInteractionEvent[] = [];
   private liftStaminaState: LiftStaminaState = INITIAL_LIFT_STAMINA_STATE;
+  private collectiblesCollectedCount = 0;
   private obstaclesClearedCount = 0;
+  private precisionLandingsCount = 0;
   private snapshotValue: SimulationSnapshot;
 
   constructor(options: SimulationOptions = {}) {
@@ -444,7 +450,9 @@ export class ChickenSimulation {
     this.clearedObstacleIds.clear();
     this.interactionEvents = [];
     this.liftStaminaState = INITIAL_LIFT_STAMINA_STATE;
+    this.collectiblesCollectedCount = 0;
     this.obstaclesClearedCount = 0;
+    this.precisionLandingsCount = 0;
     this.snapshotValue = this.createInitialSnapshot();
     return this.snapshot();
   }
@@ -468,6 +476,15 @@ export class ChickenSimulation {
     const chickenWorldX = state.distance + CHICKEN_SCREEN_X;
     const geometry = this.worldGeometry(chickenWorldX, state.tick);
     const nearbyPlatforms = geometry.platforms;
+    pruneRetainedIds(
+      this.precisionLandingIds,
+      new Set(nearbyPlatforms.map((platform) => platform.id)),
+    );
+    pruneRetainedIds(
+      this.collectedCollectibleIds,
+      new Set(geometry.collectibles.map((collectible) => collectible.id)),
+    );
+    state.collectedCollectibleIds = [...this.collectedCollectibleIds];
     const currentChunk = this.generatedCourse?.chunkAt(chickenWorldX);
 
     state.courseDistance = currentChunk
@@ -558,9 +575,10 @@ export class ChickenSimulation {
           !this.precisionLandingIds.has(landing.id)
         ) {
           this.precisionLandingIds.add(landing.id);
+          this.precisionLandingsCount += 1;
           state.statistics = {
             ...state.statistics,
-            precisionLandings: this.precisionLandingIds.size,
+            precisionLandings: this.precisionLandingsCount,
           };
         }
       } else {
@@ -574,10 +592,11 @@ export class ChickenSimulation {
         intersectsCollectible(collectible, previousWorldX, chickenWorldX, chicken.y)
       ) {
         this.collectedCollectibleIds.add(collectible.id);
+        this.collectiblesCollectedCount += 1;
         state.collectedCollectibleIds = [...this.collectedCollectibleIds];
         state.statistics = {
           ...state.statistics,
-          collectibles: this.collectedCollectibleIds.size,
+          collectibles: this.collectiblesCollectedCount,
         };
         this.interactionEvents.push({
           type: "collectible-collected",
@@ -692,6 +711,10 @@ export class ChickenSimulation {
         ? (generatedPool?.total ??
           this.platforms.length + this.spikes.length + (this.water?.length ?? 1))
         : 0,
+      retainedCollectibleIds: active ? this.collectedCollectibleIds.size : 0,
+      retainedCollisionIds: active ? this.emittedCollisionIds.size : 0,
+      retainedObstacleIds: active ? this.clearedObstacleIds.size : 0,
+      retainedPrecisionLandingIds: active ? this.precisionLandingIds.size : 0,
       destroyed: this.destroyed,
     };
   }
@@ -851,6 +874,14 @@ export class ChickenSimulation {
   private assertAlive() {
     if (this.destroyed) {
       throw new Error("The simulation has been destroyed");
+    }
+  }
+}
+
+function pruneRetainedIds(retained: Set<string>, active: ReadonlySet<string>) {
+  for (const id of retained) {
+    if (!active.has(id)) {
+      retained.delete(id);
     }
   }
 }

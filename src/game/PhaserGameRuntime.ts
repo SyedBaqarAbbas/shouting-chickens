@@ -11,14 +11,19 @@ import {
   type PresentationPreferences,
   type RunOptions,
 } from "../core";
+import { RELEASE_INFO } from "../release";
 import { FixedStepRunner } from "./FixedStepRunner";
 import { DEFAULT_PLAYER_CONTROLLER_TUNING } from "./FixedStepPlayerController";
 import { GeneratedChunkCourse, type GeneratedCourseSnapshot } from "./GeneratedChunkCourse";
+import {
+  RuntimePerformanceMonitor,
+  type RuntimePerformanceDiagnostics,
+} from "./RuntimePerformanceMonitor";
 import { ChickenSimulation, FIXED_STEP_MS, type SimulationSnapshot } from "./simulation";
 
 export type PhaserFrameHost = {
   onSceneReady(): void;
-  advanceFrame(deltaMs: number): SimulationSnapshot;
+  advanceFrame(deltaMs: number, rawFrameDeltaMs?: number): SimulationSnapshot;
   snapshot(): SimulationSnapshot;
   courseSnapshot(): GeneratedCourseSnapshot | null;
   hudSnapshot(): {
@@ -31,6 +36,8 @@ export type PhaserFrameHost = {
 
 export type PhaserGameHandle = {
   destroy(removeCanvas: boolean): void;
+  resumeGameAudioFromGesture?(): Promise<boolean> | boolean;
+  suspendGameAudioForBackground?(): Promise<void> | void;
   diagnostics?(): {
     sceneObjects: number;
     activeTimers: number;
@@ -39,7 +46,9 @@ export type PhaserGameHandle = {
     artAtlasFrames?: number;
     artAtlasSource?: string;
     audioCueCount?: number;
-    audioState?: "idle" | "ready" | "unavailable" | "destroyed";
+    audioActiveVoices?: number;
+    audioGraphNodes?: number;
+    audioState?: "idle" | "ready" | "suspended" | "unavailable" | "destroyed";
     chickenArtFrame?: string;
     invalidVisibleArtObjects?: number;
     lastAudioCue?: string | null;
@@ -47,6 +56,7 @@ export type PhaserGameHandle = {
     renderedQuietZones?: number;
     renderedCollectibles?: number;
     renderedMovingHazards?: number;
+    renderer?: "webgl" | "canvas" | "headless" | "unknown";
   };
 };
 
@@ -71,10 +81,17 @@ export type RuntimeDiagnostics = {
   artAtlasFrames: number;
   artAtlasSource: string;
   audioCueCount: number;
-  audioState: "idle" | "ready" | "unavailable" | "destroyed";
+  audioActiveVoices: number;
+  audioGraphNodes: number;
+  audioState: "idle" | "ready" | "suspended" | "unavailable" | "destroyed";
   chickenArtFrame: string;
   collisionZones: number;
   pooledObjects: number;
+  retainedCollectibleIds: number;
+  retainedCollisionIds: number;
+  retainedObstacleIds: number;
+  retainedPrecisionLandingIds: number;
+  renderer: "webgl" | "canvas" | "headless" | "unmounted" | "unknown";
   sceneObjects: number;
   renderedWarnings: number;
   renderedQuietZones: number;
@@ -86,7 +103,41 @@ export type RuntimeDiagnostics = {
   eventListeners: number;
   hasPhaserGame: boolean;
   failedRun: FailedRunDiagnostic | null;
+  performance: RuntimePerformanceDiagnostics;
 };
+
+export type SafeLocalRuntimeDiagnostics = Readonly<{
+  schemaVersion: 1;
+  release: {
+    version: string;
+    commit: string;
+  };
+  run: {
+    seed: string | null;
+    gameplayVersion: string | null;
+  };
+  renderer: RuntimeDiagnostics["renderer"];
+  capabilities: {
+    gameAudio: boolean;
+    phaserMounted: boolean;
+  };
+  performance: RuntimePerformanceDiagnostics;
+  resources: {
+    activeBodies: number;
+    activeParticles: number;
+    activeTimers: number;
+    audioActiveVoices: number;
+    audioGraphNodes: number;
+    eventListeners: number;
+    inputListeners: number;
+    pooledObjects: number;
+    retainedCollectibleIds: number;
+    retainedCollisionIds: number;
+    retainedObstacleIds: number;
+    retainedPrecisionLandingIds: number;
+    sceneObjects: number;
+  };
+}>;
 
 export type FailedRunDiagnostic = Readonly<{
   seed: string;
@@ -115,6 +166,8 @@ export class PhaserGameRuntime implements GameRuntime, PhaserFrameHost {
   private readonly simulation: ChickenSimulation;
   private readonly runner: FixedStepRunner;
   private readonly events: GameEventHub;
+  private readonly clock: Clock;
+  private performanceMonitor = new RuntimePerformanceMonitor();
   private readonly resolveDestroyed: () => void;
   private readonly destroyedPromise: Promise<void>;
 
@@ -151,7 +204,8 @@ export class PhaserGameRuntime implements GameRuntime, PhaserFrameHost {
       this.generatedCourse ? { generatedCourse: this.generatedCourse } : {},
     );
     this.runner = new FixedStepRunner(this.simulation);
-    this.events = new GameEventHub(options.clock ?? new SystemClock());
+    this.clock = options.clock ?? new SystemClock();
+    this.events = new GameEventHub(this.clock);
 
     let resolveDestroyed: () => void = () => {};
     this.destroyedPromise = new Promise<void>((resolve) => {
@@ -266,6 +320,30 @@ export class PhaserGameRuntime implements GameRuntime, PhaserFrameHost {
     this.updateContainerState();
   }
 
+  suspendGameAudioForBackground() {
+    if (this.stateValue !== "mounted") {
+      return Promise.resolve();
+    }
+
+    try {
+      return Promise.resolve(this.game?.suspendGameAudioForBackground?.()).catch(() => undefined);
+    } catch {
+      return Promise.resolve();
+    }
+  }
+
+  resumeGameAudioFromGesture(): Promise<boolean> {
+    if (this.stateValue !== "mounted") {
+      return Promise.resolve(false);
+    }
+
+    try {
+      return Promise.resolve(this.game?.resumeGameAudioFromGesture?.() ?? false).catch(() => false);
+    } catch {
+      return Promise.resolve(false);
+    }
+  }
+
   resume() {
     if (this.stateValue !== "mounted") {
       return;
@@ -321,13 +399,16 @@ export class PhaserGameRuntime implements GameRuntime, PhaserFrameHost {
     return { ...this.presentationPreferences };
   }
 
-  advanceFrame(deltaMs: number) {
+  advanceFrame(deltaMs: number, rawFrameDeltaMs = deltaMs) {
     if (this.stateValue !== "mounted") {
       return this.simulation.snapshot();
     }
 
     const input = this.input;
     const before = this.simulation.snapshot();
+    if (before.phase === "running") {
+      this.performanceMonitor.recordFrame(rawFrameDeltaMs);
+    }
 
     if (before.phase !== "dead" && input) {
       this.runner.advance(deltaMs, () => this.readFixedStepIntent(input));
@@ -409,10 +490,17 @@ export class PhaserGameRuntime implements GameRuntime, PhaserFrameHost {
       artAtlasFrames: scene?.artAtlasFrames ?? 0,
       artAtlasSource: scene?.artAtlasSource ?? "unmounted",
       audioCueCount: scene?.audioCueCount ?? 0,
+      audioActiveVoices: scene?.audioActiveVoices ?? 0,
+      audioGraphNodes: scene?.audioGraphNodes ?? 0,
       audioState: scene?.audioState ?? "idle",
       chickenArtFrame: scene?.chickenArtFrame ?? "",
       collisionZones: simulation.collisionZones,
       pooledObjects: scene?.pooledObjects ?? simulation.pooledObjects,
+      retainedCollectibleIds: simulation.retainedCollectibleIds,
+      retainedCollisionIds: simulation.retainedCollisionIds,
+      retainedObstacleIds: simulation.retainedObstacleIds,
+      retainedPrecisionLandingIds: simulation.retainedPrecisionLandingIds,
+      renderer: scene?.renderer ?? (this.game ? "unknown" : "unmounted"),
       sceneObjects: scene?.sceneObjects ?? 0,
       renderedWarnings: scene?.renderedWarnings ?? 0,
       renderedQuietZones: scene?.renderedQuietZones ?? 0,
@@ -424,7 +512,49 @@ export class PhaserGameRuntime implements GameRuntime, PhaserFrameHost {
       eventListeners: this.events.listenerCount(),
       hasPhaserGame: this.game !== null,
       failedRun: this.failedRun ? { ...this.failedRun } : null,
+      performance: this.performanceMonitor.diagnostics(),
     };
+  }
+
+  localDiagnostics(): SafeLocalRuntimeDiagnostics {
+    const diagnostics = this.diagnostics();
+    return Object.freeze({
+      schemaVersion: 1,
+      release: {
+        version: RELEASE_INFO.version,
+        commit: RELEASE_INFO.commitSha,
+      },
+      run: {
+        seed: this.lastRunOptions?.seed ?? null,
+        gameplayVersion: this.lastRunOptions?.gameplayVersion ?? null,
+      },
+      renderer: diagnostics.renderer,
+      capabilities: {
+        gameAudio: diagnostics.audioState !== "unavailable",
+        phaserMounted: diagnostics.hasPhaserGame,
+      },
+      performance: diagnostics.performance,
+      resources: {
+        activeBodies: diagnostics.activeBodies,
+        activeParticles: diagnostics.activeParticles,
+        activeTimers: diagnostics.activeTimers,
+        audioActiveVoices: diagnostics.audioActiveVoices,
+        audioGraphNodes: diagnostics.audioGraphNodes,
+        eventListeners: diagnostics.eventListeners,
+        inputListeners: diagnostics.inputListeners,
+        pooledObjects: diagnostics.pooledObjects,
+        retainedCollectibleIds: diagnostics.retainedCollectibleIds,
+        retainedCollisionIds: diagnostics.retainedCollisionIds,
+        retainedObstacleIds: diagnostics.retainedObstacleIds,
+        retainedPrecisionLandingIds: diagnostics.retainedPrecisionLandingIds,
+        sceneObjects: diagnostics.sceneObjects,
+      },
+    });
+  }
+
+  resetLocalPerformanceDiagnostics() {
+    this.performanceMonitor = new RuntimePerformanceMonitor();
+    this.updateContainerState();
   }
 
   private assertMounted() {
@@ -444,6 +574,17 @@ export class PhaserGameRuntime implements GameRuntime, PhaserFrameHost {
       intent = input.sampleAt(this.simulation.snapshot().elapsedMs + FIXED_STEP_MS);
     } else {
       intent = input.latest();
+    }
+    const inputLatencySamples = input.consumeInputLatencySamples?.();
+    if (inputLatencySamples) {
+      for (const sample of inputLatencySamples) {
+        this.performanceMonitor.recordInputToIntent(sample.latencyMs, sample.provenance);
+      }
+    } else {
+      const inputLatencyMs = input.consumeInputLatencyMs?.();
+      if (inputLatencyMs !== undefined && inputLatencyMs !== null) {
+        this.performanceMonitor.recordInputToIntent(inputLatencyMs, this.configuredInput);
+      }
     }
 
     const feedback = input.getFeedback?.();
@@ -476,16 +617,26 @@ export class PhaserGameRuntime implements GameRuntime, PhaserFrameHost {
     this.container.dataset.artAtlasFrames = String(diagnostics.artAtlasFrames);
     this.container.dataset.artAtlasSource = diagnostics.artAtlasSource;
     this.container.dataset.audioCueCount = String(diagnostics.audioCueCount);
+    this.container.dataset.audioActiveVoices = String(diagnostics.audioActiveVoices);
+    this.container.dataset.audioGraphNodes = String(diagnostics.audioGraphNodes);
     this.container.dataset.audioState = diagnostics.audioState;
     this.container.dataset.chickenArtFrame = diagnostics.chickenArtFrame;
     this.container.dataset.collisionZones = String(diagnostics.collisionZones);
     this.container.dataset.pooledObjects = String(diagnostics.pooledObjects);
+    this.container.dataset.retainedCollectibleIds = String(diagnostics.retainedCollectibleIds);
+    this.container.dataset.retainedCollisionIds = String(diagnostics.retainedCollisionIds);
+    this.container.dataset.retainedObstacleIds = String(diagnostics.retainedObstacleIds);
+    this.container.dataset.retainedPrecisionLandingIds = String(
+      diagnostics.retainedPrecisionLandingIds,
+    );
+    this.container.dataset.renderer = diagnostics.renderer;
     this.container.dataset.sceneObjects = String(diagnostics.sceneObjects);
     this.container.dataset.renderedWarnings = String(diagnostics.renderedWarnings);
     this.container.dataset.renderedQuietZones = String(diagnostics.renderedQuietZones);
     this.container.dataset.renderedCollectibles = String(diagnostics.renderedCollectibles);
     this.container.dataset.renderedMovingHazards = String(diagnostics.renderedMovingHazards);
     this.container.dataset.inputListeners = String(diagnostics.inputListeners);
+    this.container.dataset.eventListeners = String(diagnostics.eventListeners);
     this.container.dataset.invalidVisibleArtObjects = String(diagnostics.invalidVisibleArtObjects);
     this.container.dataset.lastAudioCue = diagnostics.lastAudioCue ?? "";
     this.container.dataset.activeInput = this.activeInput;
@@ -559,7 +710,9 @@ export class PhaserGameRuntime implements GameRuntime, PhaserFrameHost {
         .filter((spike) => spike.kind === "moving-spike")
         .map((spike) => `${spike.id}@${spike.x.toFixed(3)}`)
         .join(",") ?? "";
-    this.container.dataset.collectedCollectibles = String(snapshot.collectedCollectibleIds.length);
+    this.container.dataset.collectedCollectibles = String(snapshot.statistics.collectibles);
+    this.container.dataset.performanceDiagnostics = JSON.stringify(diagnostics.performance);
+    this.container.dataset.localDiagnostics = JSON.stringify(this.localDiagnostics());
     this.container.dataset.deathReason = snapshot.deathReason ?? "";
     this.container.dataset.collisionId = snapshot.collisionId ?? "";
 

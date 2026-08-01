@@ -68,9 +68,11 @@ type AudioWindow = Window &
   };
 
 export type GameAudioDiagnostics = Readonly<{
+  activeVoices: number;
   cueCount: number;
+  graphNodes: number;
   lastCue: GameAudioCue | null;
-  state: "idle" | "ready" | "unavailable" | "destroyed";
+  state: "idle" | "ready" | "suspended" | "unavailable" | "destroyed";
 }>;
 
 type ActiveVoice = {
@@ -90,7 +92,7 @@ export function audioCuesForTransition(
   if (current.phase === "dead" && previous.phase !== "dead") {
     return ["hazard"];
   }
-  if (current.collectedCollectibleIds.length > previous.collectedCollectibleIds.length) {
+  if (current.statistics.collectibles > previous.statistics.collectibles) {
     return ["feather"];
   }
   if (current.landingCount > previous.landingCount) {
@@ -142,9 +144,31 @@ export class GameAudioDirector {
   private activeVoice: ActiveVoice | null = null;
   private previous: SimulationSnapshot | null = null;
   private muted = false;
+  private lifecycleGeneration = 0;
+  private lifecycleSuspended = false;
+  private pendingSuspend: Promise<void> | null = null;
   private state: GameAudioDiagnostics["state"] = "idle";
   private cueCount = 0;
   private lastCue: GameAudioCue | null = null;
+  private readonly handleContextStateChange = () => {
+    const context = this.context;
+    if (!context || this.state === "destroyed") {
+      return;
+    }
+
+    if (context.state === "closed") {
+      this.disposeGraph(this.lifecycleSuspended ? "suspended" : "idle");
+    } else if (context.state === "running" && this.lifecycleSuspended) {
+      this.disposeActiveVoice(context.currentTime);
+      this.state = "suspended";
+      void this.requestContextSuspend(context);
+    } else if (context.state === "running" && !this.lifecycleSuspended) {
+      this.state = "ready";
+    } else {
+      this.disposeActiveVoice(context.currentTime);
+      this.state = "suspended";
+    }
+  };
 
   constructor(
     private readonly contextFactory: (() => AudioContext | null) | null = defaultContextFactory,
@@ -159,7 +183,7 @@ export class GameAudioDirector {
     const cues = audioCuesForTransition(this.previous, snapshot);
     this.previous = snapshot;
 
-    if (this.muted) {
+    if (this.muted || this.lifecycleSuspended) {
       return;
     }
 
@@ -178,10 +202,124 @@ export class GameAudioDirector {
 
   diagnostics(): GameAudioDiagnostics {
     return Object.freeze({
+      activeVoices: this.activeVoice ? 1 : 0,
       cueCount: this.cueCount,
+      graphNodes: this.context ? 2 + (this.activeVoice ? 2 : 0) : 0,
       lastCue: this.lastCue,
       state: this.state,
     });
+  }
+
+  async suspendForBackground() {
+    if (this.state === "destroyed" || this.state === "unavailable") {
+      return;
+    }
+
+    const generation = ++this.lifecycleGeneration;
+    this.lifecycleSuspended = true;
+    const context = this.context;
+    if (!context) {
+      this.state = "suspended";
+      return;
+    }
+
+    this.disposeActiveVoice(context.currentTime);
+    this.state = "suspended";
+    if (context.state !== "running") {
+      return;
+    }
+
+    const suspension = this.requestContextSuspend(context);
+    await suspension;
+
+    if (
+      generation === this.lifecycleGeneration &&
+      this.lifecycleSuspended &&
+      this.context === context
+    ) {
+      this.state = "suspended";
+    }
+  }
+
+  async resumeFromGesture(): Promise<boolean> {
+    if (this.state === "destroyed" || this.state === "unavailable") {
+      return false;
+    }
+
+    const generation = ++this.lifecycleGeneration;
+    const wasLifecycleSuspended = this.lifecycleSuspended;
+    const pendingSuspend = this.pendingSuspend;
+    this.lifecycleSuspended = false;
+    const context = this.ensureContext();
+    if (!context) {
+      return false;
+    }
+
+    let initialResume: Promise<void> = Promise.resolve();
+    if (wasLifecycleSuspended || pendingSuspend || context.state !== "running") {
+      try {
+        initialResume = Promise.resolve(context.resume());
+      } catch {
+        initialResume = Promise.reject(new Error("Audio context resume failed"));
+      }
+    }
+
+    try {
+      await initialResume;
+      await pendingSuspend;
+      if (
+        generation !== this.lifecycleGeneration ||
+        this.lifecycleSuspended ||
+        this.context !== context ||
+        context.state === "closed"
+      ) {
+        return false;
+      }
+      if (context.state !== "running") {
+        await context.resume();
+      }
+    } catch {
+      if (generation === this.lifecycleGeneration && this.context === context) {
+        this.lifecycleSuspended = true;
+        this.state = "suspended";
+      }
+      return false;
+    }
+
+    if (
+      generation !== this.lifecycleGeneration ||
+      this.lifecycleSuspended ||
+      this.context !== context ||
+      context.state !== "running"
+    ) {
+      return false;
+    }
+
+    this.state = "ready";
+    return true;
+  }
+
+  private requestContextSuspend(context: AudioContext): Promise<void> {
+    if (this.context !== context || context.state !== "running") {
+      return Promise.resolve();
+    }
+    if (this.pendingSuspend) {
+      return this.pendingSuspend;
+    }
+
+    let suspension: Promise<void>;
+    try {
+      suspension = Promise.resolve(context.suspend()).catch(() => undefined);
+    } catch {
+      suspension = Promise.resolve();
+    }
+    this.pendingSuspend = suspension;
+    void suspension.then(() => {
+      if (this.pendingSuspend === suspension) {
+        this.pendingSuspend = null;
+      }
+    });
+    return suspension;
   }
 
   destroy() {
@@ -189,10 +327,14 @@ export class GameAudioDirector {
       return;
     }
 
+    ++this.lifecycleGeneration;
+    this.lifecycleSuspended = true;
+    this.pendingSuspend = null;
     const context = this.context;
     if (context) {
       this.disposeActiveVoice(context.currentTime);
     }
+    context?.removeEventListener("statechange", this.handleContextStateChange);
     this.limiter?.disconnect();
     this.master?.disconnect();
     this.context = null;
@@ -221,7 +363,10 @@ export class GameAudioDirector {
   private play(cueName: GameAudioCue) {
     const context = this.ensureContext();
     const limiter = this.limiter;
-    if (!context || !limiter) {
+    if (this.lifecycleSuspended || !context || !limiter || context.state !== "running") {
+      if (context && context.state !== "closed") {
+        this.state = "suspended";
+      }
       return;
     }
 
@@ -259,9 +404,6 @@ export class GameAudioDirector {
 
   private ensureContext(): AudioContext | null {
     if (this.context) {
-      if (this.context.state === "suspended") {
-        void this.context.resume().catch(() => undefined);
-      }
       return this.context;
     }
     if (!this.contextFactory || this.state === "unavailable") {
@@ -284,10 +426,8 @@ export class GameAudioDirector {
       this.context = context;
       this.limiter = limiter;
       this.master = master;
-      this.state = "ready";
-      if (context.state === "suspended") {
-        void context.resume().catch(() => undefined);
-      }
+      context.addEventListener("statechange", this.handleContextStateChange);
+      this.state = context.state === "running" ? "ready" : "suspended";
       return context;
     } catch {
       this.state = "unavailable";
@@ -320,6 +460,20 @@ export class GameAudioDirector {
     }
     voice.oscillator.disconnect();
     voice.envelope.disconnect();
+  }
+
+  private disposeGraph(nextState: GameAudioDiagnostics["state"]) {
+    const context = this.context;
+    if (context) {
+      this.disposeActiveVoice(context.currentTime);
+      context.removeEventListener("statechange", this.handleContextStateChange);
+    }
+    this.limiter?.disconnect();
+    this.master?.disconnect();
+    this.context = null;
+    this.limiter = null;
+    this.master = null;
+    this.state = nextState;
   }
 }
 

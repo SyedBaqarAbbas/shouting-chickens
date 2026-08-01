@@ -1,22 +1,44 @@
-# MVP support matrix and known limitations
+# Browser, device, and performance support matrix
 
-The MVP targets current standalone mobile browsers over HTTPS. “Target” is not the same as
-“verified”: physical evidence is recorded separately for each release candidate.
+The game targets current standalone mobile and desktop browsers over HTTPS. “Target” is not the
+same as “verified”: exact physical evidence is recorded separately for each release candidate and
+must never be inferred from an emulated browser.
 
-| Surface                           | MVP position                                 | SHO-14 automated evidence                 | Release evidence required                |
-| --------------------------------- | -------------------------------------------- | ----------------------------------------- | ---------------------------------------- |
-| iOS Safari on a current iPhone    | Target                                       | Chromium cannot prove Safari behavior     | Real-device checklist and evidence URL   |
-| Android Chrome on a current phone | Target                                       | Chromium media adapters and portrait UI   | Real-device checklist and evidence URL   |
-| Desktop Chrome                    | Supported for keyboard/touch and development | Full Chromium unit/integration/E2E suites | Automated release gates                  |
-| Playwright WebKit                 | Future compatibility gate                    | Not run by SHO-14                         | Deferred to SHO-20                       |
-| Playwright Firefox                | Future compatibility gate                    | Not run by SHO-14                         | Deferred to SHO-20                       |
-| Edge and desktop Safari           | Best effort, not an MVP release target       | Not run by SHO-14                         | Report problems with exact versions      |
-| Embedded social-media webviews    | Unsupported                                  | Not tested                                | Open the URL in standalone Safari/Chrome |
+| Surface                           | Product position | Automated evidence                         | Candidate evidence required              |
+| --------------------------------- | ---------------- | ------------------------------------------ | ---------------------------------------- |
+| iOS Safari on a current iPhone    | Supported        | Playwright WebKit compatibility gate       | Real-device checklist and evidence URL   |
+| Android Chrome on a current phone | Supported        | Chromium fake-media and portrait UI gates  | Real-device checklist and evidence URL   |
+| Desktop Chrome                    | Supported        | Chromium development/release/compatibility | Manual pass in installed Chrome          |
+| Desktop Edge                      | Supported        | Chromium engine compatibility gate         | Manual pass in installed Edge            |
+| Desktop Firefox                   | Supported        | Playwright Firefox compatibility gate      | Manual pass in installed Firefox         |
+| Desktop Safari                    | Supported        | Playwright WebKit compatibility gate       | Manual pass in installed Safari          |
+| Embedded social-media webviews    | Unsupported      | Not tested                                 | Open the URL in standalone Safari/Chrome |
 
-SHO-14 automation is intentionally Chromium-only. It validates the real browser media-session,
-calibration, AudioWorklet URL, input, Phaser, recovery, responsive, release, and fallback boundaries
-under Chromium. It does not constitute an iOS Safari, Android hardware, WebKit, or Firefox pass.
-SHO-20 owns the broader automated cross-browser and performance matrix.
+Run the sealed cross-engine gate with `npm run test:e2e:compatibility`. It drives the same
+keyboard/touch intent, synthetic visibility latch, explicit gesture resume, Phaser surface, and
+privacy-safe diagnostics through Chromium, Firefox, and WebKit. Run `npm run test:e2e:production`
+for the Chromium fake-media voice/camera boundary. Neither command constitutes physical-mobile or
+installed-desktop evidence.
+
+## Performance reference and budgets
+
+The physical reference phone is the Android device named in the candidate checklist, in portrait
+orientation, with Chrome current at the time of release, battery saver disabled, and no remote
+debugger attached. Use the query-gated Settings recorder documented in the checklist and record its
+unchanged JSON alongside manufacturer/model, OS, browser version, refresh rate, and thermal state.
+The same candidate must meet:
+
+- Voice onset to created control intent p95 at or below 100 ms after calibration, using the
+  voice-provenance histogram rather than the combined fallback-input histogram.
+- Running-frame p95 at or below 20 ms.
+- A true 600,000 ms physical capture with bounded app-owned bodies, timers, listeners, pooled
+  objects, retained identifiers, audio nodes/voices, and media tracks.
+- A true 600,000 ms same-SHA sealed Chromium soak with a bounded post-GC heap trend.
+
+`npm run test:soak` writes coarse evidence to `.release-evidence/restart-soak.json`. The safe local
+diagnostic JSON payloads intentionally expose only release identity, seed/gameplay version,
+renderer, capabilities, coarse timing buckets, and resource counts. Those payloads contain no
+device identifiers, raw audio, dBFS/RMS/normalized voice levels, camera frames, or recordings.
 
 ## Known MVP limitations
 
@@ -38,8 +60,8 @@ SHO-20 owns the broader automated cross-browser and performance matrix.
   game-owned data reset are available from the accessible settings dialog.
 - AudioWorklet is preferred; an inaudible analyser-based scalar fallback is used where worklets are
   exposed but unavailable.
-- The Phaser bundle is intentionally unoptimized for the MVP and currently produces a Vite
-  large-chunk warning. Bundle/performance budgets are expanded in SHO-20.
+- The Phaser bundle may still produce a Vite large-chunk warning; runtime frame and resource
+  budgets are measured independently.
 - Original game cues are bounded by a deterministic low-output feedback model, but speaker-to-mic
   loopback remains a required physical iOS Safari and Android Chrome release check. The procedure
   and asset register are in `docs/assets/original-art-and-audio.md`; automation is not physical

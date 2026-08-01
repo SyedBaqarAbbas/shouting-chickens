@@ -81,6 +81,7 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     exclude: [
+      "tests/compatibility/**",
       "tests/e2e/**",
       "tests/postdeploy/**",
       "tests/pwa/**",

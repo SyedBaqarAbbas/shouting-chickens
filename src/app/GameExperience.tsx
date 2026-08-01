@@ -10,6 +10,7 @@ import {
   type VoiceFrame,
 } from "../core";
 import { createGameRuntime } from "../game/createGame";
+import { GameAudioDirector } from "../game/presentation/GameAudioDirector";
 import {
   BrowserCalibrationCapture,
   calibrationFailureMessage,
@@ -31,7 +32,12 @@ import {
   type LocalGameData,
 } from "../platform/persistence";
 import { CameraComposition } from "./CameraComposition";
-import { GameSurface } from "./GameSurface";
+import { GameSurface, type GameSurfaceHandle } from "./GameSurface";
+import {
+  LocalDiagnosticsRecorder,
+  REFERENCE_EVIDENCE_DURATION_MS,
+  type ReferenceEvidenceSnapshot,
+} from "./LocalDiagnosticsRecorder";
 
 type Screen =
   | "permission"
@@ -59,6 +65,7 @@ export interface GameExperienceProps {
   readonly landscape: boolean;
   readonly onPwaUpdateHostChange?: (host: HTMLElement | null) => void;
   readonly onRunActivityChange?: (active: boolean) => void;
+  readonly referenceEvidenceEnabled?: boolean;
   readonly session: BrowserMediaSession;
   readonly storage?: KeyValueStorage;
 }
@@ -113,6 +120,7 @@ export function GameExperience({
   landscape,
   onPwaUpdateHostChange,
   onRunActivityChange,
+  referenceEvidenceEnabled = referenceEvidenceRequested(),
   session,
   storage,
 }: GameExperienceProps) {
@@ -120,6 +128,8 @@ export function GameExperience({
     () => (storage ? new LocalGameDataStore(storage) : createBrowserLocalGameDataStore()),
     [storage],
   );
+  const gameAudioDirector = useMemo(() => new GameAudioDirector(), []);
+  const gameAudioLifecycleToken = useRef<object | null>(null);
   const initialLocalData = useMemo(() => localDataStore.read(), [localDataStore]);
   const media = useMediaSnapshot(session);
   const [screen, setScreen] = useState<Screen>(() =>
@@ -142,6 +152,8 @@ export function GameExperience({
   const [voiceInput, setVoiceInput] = useState<VoiceInput | null>(null);
   const [countdown, setCountdown] = useState(3);
   const [manualPaused, setManualPaused] = useState(false);
+  const [backgroundResumeRequired, setBackgroundResumeRequired] = useState(false);
+  const [pauseFocusRequest, setPauseFocusRequest] = useState(0);
   const [summary, setSummary] = useState<RunSummary | null>(null);
   const [restartToken, setRestartToken] = useState(0);
   const [runtimeError, setRuntimeError] = useState("");
@@ -160,9 +172,22 @@ export function GameExperience({
   const settingsFocusLabel = useRef("");
   const restoreSettingsFocus = useRef(false);
   const flowDialogRef = useRef<HTMLElement>(null);
+  const gameSurfaceRef = useRef<GameSurfaceHandle>(null);
+  const referenceEvidenceRecorder = useRef<LocalDiagnosticsRecorder | null>(null);
+  const [referenceEvidence, setReferenceEvidence] = useState<ReferenceEvidenceSnapshot | null>(
+    null,
+  );
+  const backgroundResumeGeneration = useRef(0);
+  const previousVisibility = useRef(media.visibility);
+  const previousMediaPause = useRef(false);
+  const previousLandscape = useRef(landscape);
   const restorePauseFocus = useRef(false);
   const expectedRunId = useRef(1);
   const recordedRunId = useRef<number | null>(null);
+  const requestPauseFocus = useCallback(() => {
+    restorePauseFocus.current = true;
+    setPauseFocusRequest((current) => current + 1);
+  }, []);
   const setupRequiresCalibration = useRef(true);
   const mounted = useRef(true);
   const calibrationRef = useRef<CalibrationCapture | null>(null);
@@ -211,14 +236,50 @@ export function GameExperience({
     voiceInputRef.current = voiceInput;
   }, [calibration, voiceInput]);
 
+  useEffect(() => {
+    const token = {};
+    gameAudioLifecycleToken.current = token;
+    return () => {
+      queueMicrotask(() => {
+        if (gameAudioLifecycleToken.current === token) {
+          gameAudioDirector.destroy();
+        }
+      });
+    };
+  }, [gameAudioDirector]);
+
   const runActive =
     screen === "countdown" ||
     screen === "playing" ||
     (screen === "settings" && settingsReturnScreen === "playing");
+  const keepGameMounted =
+    screen === "playing" ||
+    screen === "results" ||
+    screen === "runtime-error" ||
+    (screen === "settings" &&
+      (settingsReturnScreen === "playing" || settingsReturnScreen === "results"));
 
   useEffect(() => {
     onRunActivityChange?.(runActive);
   }, [onRunActivityChange, runActive]);
+
+  useEffect(() => {
+    const surfaceMountedForRun =
+      screen === "playing" || (screen === "settings" && settingsReturnScreen === "playing");
+    if (media.visibility === "hidden" && !surfaceMountedForRun) {
+      void gameAudioDirector.suspendForBackground();
+    }
+
+    const becameHidden =
+      surfaceMountedForRun &&
+      media.visibility === "hidden" &&
+      previousVisibility.current !== "hidden";
+    previousVisibility.current = media.visibility;
+    if (becameHidden) {
+      backgroundResumeGeneration.current += 1;
+      setBackgroundResumeRequired(true);
+    }
+  }, [gameAudioDirector, media.visibility, screen, settingsReturnScreen]);
 
   useEffect(() => {
     mounted.current = true;
@@ -252,7 +313,14 @@ export function GameExperience({
   }, [screen]);
 
   useEffect(() => {
-    if (screen !== "playing" || manualPaused || !restorePauseFocus.current) {
+    if (
+      screen !== "playing" ||
+      manualPaused ||
+      backgroundResumeRequired ||
+      landscape ||
+      media.visibility === "hidden" ||
+      !restorePauseFocus.current
+    ) {
       return;
     }
     restorePauseFocus.current = false;
@@ -261,7 +329,14 @@ export function GameExperience({
         document.querySelector<HTMLButtonElement>('button[aria-label="Pause run"]')?.focus();
       }
     });
-  }, [manualPaused, screen]);
+  }, [
+    backgroundResumeRequired,
+    landscape,
+    manualPaused,
+    media.visibility,
+    pauseFocusRequest,
+    screen,
+  ]);
 
   const beginCalibration = useCallback(
     async (generation: number) => {
@@ -440,6 +515,8 @@ export function GameExperience({
     setTestFrame(null);
     setRequestingMicrophone(false);
     setManualPaused(false);
+    backgroundResumeGeneration.current += 1;
+    setBackgroundResumeRequired(false);
     setVoiceProcessingFailed(false);
     setFlowError("");
     setupReturnScreen.current = "permission";
@@ -502,6 +579,22 @@ export function GameExperience({
   }, [media.microphone.status, media.resumeRequired, requestingMicrophone, session]);
 
   const continueRunWithFallback = useCallback(() => {
+    try {
+      void gameSurfaceRef.current?.resumeGameAudioFromGesture().then(
+        (resumed) => {
+          if (!resumed && mounted.current) {
+            setLiveStatus("Game sound could not resume; play continues silently.");
+          }
+        },
+        () => {
+          if (mounted.current) {
+            setLiveStatus("Game sound could not resume; play continues silently.");
+          }
+        },
+      );
+    } catch {
+      setLiveStatus("Game sound could not resume; play continues silently.");
+    }
     ++operationGeneration.current;
     ++voiceTestGeneration.current;
     voiceInput?.stop();
@@ -511,13 +604,16 @@ export function GameExperience({
     setTestingVoice(false);
     setTestFrame(null);
     setFlowError("");
+    backgroundResumeGeneration.current += 1;
+    requestPauseFocus();
+    setBackgroundResumeRequired(false);
 
     try {
       void session.useFallbackInput().catch(() => undefined);
     } catch {
       // Keyboard and touch are already active and independent of media cleanup.
     }
-  }, [session, updateSettings, voiceInput]);
+  }, [requestPauseFocus, session, updateSettings, voiceInput]);
 
   const completeCalibration = useCallback(
     (nextProfile: CalibrationProfile) => {
@@ -623,6 +719,22 @@ export function GameExperience({
       setScreen("permission");
       return;
     }
+    try {
+      void gameAudioDirector.resumeFromGesture().then(
+        (resumed) => {
+          if (!resumed && mounted.current) {
+            setLiveStatus("Game sound is unavailable; the run will continue silently.");
+          }
+        },
+        () => {
+          if (mounted.current) {
+            setLiveStatus("Game sound is unavailable; the run will continue silently.");
+          }
+        },
+      );
+    } catch {
+      setLiveStatus("Game sound is unavailable; the run will continue silently.");
+    }
     ++voiceTestGeneration.current;
     voiceInput?.stop();
     setTestingVoice(false);
@@ -632,7 +744,7 @@ export function GameExperience({
     recordedRunId.current = null;
     setCountdown(3);
     setScreen("countdown");
-  }, [inputMode, voiceInput]);
+  }, [gameAudioDirector, inputMode, voiceInput]);
 
   useEffect(() => {
     if (screen !== "countdown") {
@@ -689,8 +801,29 @@ export function GameExperience({
     inputMode === "voice" &&
     screen === "playing" &&
     (media.microphone.status !== "active" || media.resumeRequired || voiceProcessingFailed);
+  useEffect(() => {
+    if (previousMediaPause.current && !mediaPause && screen === "playing") {
+      requestPauseFocus();
+    }
+    previousMediaPause.current = mediaPause;
+  }, [mediaPause, requestPauseFocus, screen]);
+  useEffect(() => {
+    const returnedToPortrait = previousLandscape.current && !landscape && screen === "playing";
+    previousLandscape.current = landscape;
+    if (returnedToPortrait) {
+      requestPauseFocus();
+    }
+  }, [landscape, requestPauseFocus, screen]);
   const screenHeadingRef = useFocusOnScreen(
-    `${screen}:${manualPaused ? "manual" : mediaPause ? "media" : "base"}`,
+    `${screen}:${
+      backgroundResumeRequired
+        ? "background"
+        : manualPaused
+          ? "manual"
+          : mediaPause
+            ? "media"
+            : "base"
+    }:${media.visibility}`,
   );
 
   const pauseReasons = useMemo(() => {
@@ -704,6 +837,9 @@ export function GameExperience({
     if (media.visibility === "hidden") {
       reasons.add("hidden");
     }
+    if (backgroundResumeRequired) {
+      reasons.add("background-resume");
+    }
     if (mediaPause) {
       reasons.add("media");
     }
@@ -711,7 +847,101 @@ export function GameExperience({
       reasons.add("settings");
     }
     return reasons;
-  }, [landscape, manualPaused, media.visibility, mediaPause, screen, settingsReturnScreen]);
+  }, [
+    backgroundResumeRequired,
+    landscape,
+    manualPaused,
+    media.visibility,
+    mediaPause,
+    screen,
+    settingsReturnScreen,
+  ]);
+
+  const armReferenceEvidence = useCallback(() => {
+    const surface = gameSurfaceRef.current;
+    if (!surface?.readLocalDiagnostics()) {
+      setLiveStatus("Start a run before arming reference-phone evidence.");
+      return;
+    }
+    surface.resetLocalPerformanceDiagnostics();
+    const recorder = new LocalDiagnosticsRecorder(performance.now(), new Date().toISOString());
+    referenceEvidenceRecorder.current = recorder;
+    setReferenceEvidence(recorder.snapshot());
+    setLiveStatus(
+      "Reference-phone evidence armed. Return to visible voice play with microphone and camera active.",
+    );
+  }, []);
+
+  const captureReferenceEvidence = useCallback(() => {
+    const recorder = referenceEvidenceRecorder.current;
+    if (!recorder) {
+      return;
+    }
+    const runtime = gameSurfaceRef.current?.readLocalDiagnostics() ?? null;
+    const mediaDiagnostics = session.diagnostics?.() ?? null;
+    const mediaResources = mediaDiagnostics?.resources;
+    const mediaResourcesReady =
+      mediaResources !== undefined &&
+      mediaResources.activeAudioNodes > 0 &&
+      mediaResources.activeCameraTracks === 1 &&
+      mediaResources.activeMicrophoneTracks === 1 &&
+      mediaResources.activeTracks === 2 &&
+      mediaResources.pendingAudioContexts === 0;
+    const gameplayActive =
+      screen === "playing" &&
+      media.visibility === "visible" &&
+      !manualPaused &&
+      !backgroundResumeRequired &&
+      !landscape;
+    const controlModeValid =
+      inputMode === "voice" &&
+      media.microphone.status === "active" &&
+      media.camera.status === "active" &&
+      mediaResourcesReady;
+    const qualifying =
+      gameplayActive &&
+      pauseReasons.size === 0 &&
+      controlModeValid &&
+      runtime?.capabilities.phaserMounted === true &&
+      (runtime.renderer === "webgl" || runtime.renderer === "canvas");
+
+    setReferenceEvidence(
+      recorder.observe({
+        controlModeValid,
+        gameplayActive,
+        media: mediaDiagnostics,
+        nowMs: performance.now(),
+        nowUtc: new Date().toISOString(),
+        qualifying,
+        runtime,
+        visible: media.visibility === "visible",
+      }),
+    );
+  }, [
+    backgroundResumeRequired,
+    inputMode,
+    landscape,
+    manualPaused,
+    media.camera.status,
+    media.microphone.status,
+    media.visibility,
+    pauseReasons,
+    screen,
+    session,
+  ]);
+
+  useEffect(() => {
+    if (
+      !referenceEvidenceEnabled ||
+      !referenceEvidenceRecorder.current ||
+      referenceEvidence?.completedAtUtc
+    ) {
+      return;
+    }
+    captureReferenceEvidence();
+    const interval = window.setInterval(captureReferenceEvidence, 1_000);
+    return () => window.clearInterval(interval);
+  }, [captureReferenceEvidence, referenceEvidence?.completedAtUtc, referenceEvidenceEnabled]);
 
   const handleGameEvent = useCallback(
     (event: GameEvent) => {
@@ -810,6 +1040,7 @@ export function GameExperience({
         try {
           await voiceInput?.start();
           if (mounted.current && generation === operationGeneration.current) {
+            requestPauseFocus();
             setVoiceProcessingFailed(false);
           }
         } catch {
@@ -824,11 +1055,16 @@ export function GameExperience({
         }
       },
     );
-  }, [session, voiceInput]);
+  }, [requestPauseFocus, session, voiceInput]);
 
   const resumeMedia = useCallback(() => {
     const generation = ++operationGeneration.current;
     setFlowError("");
+    try {
+      void gameSurfaceRef.current?.resumeGameAudioFromGesture().catch(() => undefined);
+    } catch {
+      // Output audio is optional; microphone recovery remains independent.
+    }
     let resume: ReturnType<BrowserMediaSession["resumeFromGesture"]>;
     try {
       resume = session.resumeFromGesture();
@@ -838,12 +1074,13 @@ export function GameExperience({
     }
     void resume.then(
       (snapshot) => {
-        if (
-          mounted.current &&
-          generation === operationGeneration.current &&
-          snapshot.microphone.status !== "active"
-        ) {
+        if (!mounted.current || generation !== operationGeneration.current) {
+          return;
+        }
+        if (snapshot.microphone.status !== "active") {
           setFlowError("The microphone is still paused. Try again or use fallback controls.");
+        } else {
+          requestPauseFocus();
         }
       },
       () => {
@@ -852,7 +1089,7 @@ export function GameExperience({
         }
       },
     );
-  }, [session]);
+  }, [requestPauseFocus, session]);
 
   const restartRun = useCallback(() => {
     if (localDataRef.current.settings.controlPreference === "voice" && inputMode !== "voice") {
@@ -861,10 +1098,17 @@ export function GameExperience({
       setScreen("permission");
       return;
     }
+    try {
+      void gameSurfaceRef.current?.resumeGameAudioFromGesture().catch(() => undefined);
+    } catch {
+      // Restart remains available when optional output audio cannot recover.
+    }
     expectedRunId.current += 1;
     recordedRunId.current = null;
     setSummary(null);
     setManualPaused(false);
+    backgroundResumeGeneration.current += 1;
+    setBackgroundResumeRequired(false);
     setRestartToken((value) => value + 1);
     lastAnnouncement.current = {
       atMs: Number.NEGATIVE_INFINITY,
@@ -872,18 +1116,96 @@ export function GameExperience({
       phase: "",
       second: -1,
     };
+    requestPauseFocus();
     setScreen("playing");
     setLiveStatus("Run restarted.");
-  }, [inputMode]);
+  }, [inputMode, requestPauseFocus]);
 
   const resumeManualRun = useCallback(() => {
+    try {
+      void gameSurfaceRef.current?.resumeGameAudioFromGesture().catch(() => undefined);
+    } catch {
+      // Output audio is optional; simulation resume remains available.
+    }
     restorePauseFocus.current = true;
     setManualPaused(false);
   }, []);
 
+  const resumeBackgroundRun = useCallback(() => {
+    const generation = backgroundResumeGeneration.current;
+    let audioResume: Promise<boolean>;
+    try {
+      audioResume = gameSurfaceRef.current?.resumeGameAudioFromGesture() ?? Promise.resolve(false);
+    } catch {
+      audioResume = Promise.resolve(false);
+    }
+
+    const current = session.getSnapshot();
+    let mediaResume: Promise<boolean>;
+    try {
+      const recovery =
+        inputMode !== "voice"
+          ? Promise.resolve(current)
+          : current.resumeRequired
+            ? session.resumeFromGesture()
+            : current.microphone.status !== "active"
+              ? session.requestMicrophoneFromGesture().then(() => session.getSnapshot())
+              : Promise.resolve(current);
+      mediaResume = recovery.then(async (snapshot) => {
+        if (inputMode !== "voice") {
+          return true;
+        }
+        if (snapshot.microphone.status !== "active") {
+          return false;
+        }
+        if (!voiceInput) {
+          return false;
+        }
+        await voiceInput.start();
+        return true;
+      });
+    } catch {
+      mediaResume = Promise.resolve(false);
+    }
+
+    void Promise.allSettled([audioResume, mediaResume]).then(([audioResult, mediaResult]) => {
+      if (
+        !mounted.current ||
+        generation !== backgroundResumeGeneration.current ||
+        session.getSnapshot().visibility === "hidden"
+      ) {
+        return;
+      }
+
+      if (
+        audioResult.status === "rejected" ||
+        (audioResult.status === "fulfilled" && !audioResult.value)
+      ) {
+        setLiveStatus("Game sound could not resume; play continues silently.");
+      }
+
+      const next = session.getSnapshot();
+      const mediaRecovered =
+        inputMode !== "voice" ||
+        (mediaResult.status === "fulfilled" &&
+          mediaResult.value &&
+          next.microphone.status === "active" &&
+          !next.resumeRequired);
+      if (mediaRecovered) {
+        restorePauseFocus.current = true;
+        setVoiceProcessingFailed(false);
+        setBackgroundResumeRequired(false);
+      } else {
+        setFlowError("The microphone is still paused. Retry or use fallback controls.");
+      }
+    });
+  }, [inputMode, session, voiceInput]);
+
   const quitToReady = useCallback(() => {
     setSummary(null);
     setManualPaused(false);
+    backgroundResumeGeneration.current += 1;
+    setBackgroundResumeRequired(false);
     setRuntimeError("");
     setScreen("ready");
   }, []);
@@ -1017,6 +1339,8 @@ export function GameExperience({
     setTestFrame(null);
     setSummary(null);
     setManualPaused(false);
+    backgroundResumeGeneration.current += 1;
+    setBackgroundResumeRequired(false);
     setFlowError("");
     setRuntimeError("");
     setStorageNotice("Local game data cleared. Safe defaults were restored.");
@@ -1026,17 +1350,12 @@ export function GameExperience({
     setScreen("permission");
   }, [calibration, localDataStore, session, voiceInput]);
 
-  const keepGameMounted =
-    screen === "playing" ||
-    screen === "results" ||
-    screen === "runtime-error" ||
-    (screen === "settings" &&
-      (settingsReturnScreen === "playing" || settingsReturnScreen === "results"));
   const gameBlocked = screen !== "playing" || pauseReasons.size > 0;
 
   return (
     <div
       className="experience-root"
+      data-media-diagnostics={JSON.stringify(session.diagnostics?.() ?? null)}
       data-muted={localData.settings.muted ? "true" : "false"}
       data-reduced-motion={localData.settings.reducedMotion ? "true" : "false"}
       data-run-active={runActive ? "true" : "false"}
@@ -1058,10 +1377,12 @@ export function GameExperience({
 
       {keepGameMounted ? (
         <GameSurface
+          ref={gameSurfaceRef}
           activeInput={inputMode}
           blocked={gameBlocked}
           calibration={profile}
           createRuntime={createRuntime}
+          gameAudioDirector={gameAudioDirector}
           landscape={landscape}
           muted={localData.settings.muted}
           onEvent={handleGameEvent}
@@ -1301,7 +1622,42 @@ export function GameExperience({
         </div>
       ) : null}
 
-      {screen === "playing" && manualPaused ? (
+      {screen === "playing" && backgroundResumeRequired && media.visibility !== "hidden" ? (
+        <section
+          ref={flowDialogRef}
+          className="flow-card flow-card--modal"
+          role="dialog"
+          aria-labelledby="background-resume-title"
+          aria-modal="true"
+          onKeyDown={(event) =>
+            containDialogFocus(event, flowDialogRef.current, resumeBackgroundRun)
+          }
+        >
+          <p className="flow-step">Run paused safely</p>
+          <h2 id="background-resume-title" ref={screenHeadingRef} tabIndex={-1}>
+            Welcome back
+          </h2>
+          <p>
+            Your score and position are frozen. Resume from this button so browser audio and
+            microphone access can recover from the background.
+          </p>
+          {flowError ? (
+            <p className="flow-alert" role="alert">
+              {flowError}
+            </p>
+          ) : null}
+          <div className="flow-actions">
+            <button type="button" className="primary-action" onClick={resumeBackgroundRun}>
+              Resume run
+            </button>
+            <button type="button" className="secondary-action" onClick={continueRunWithFallback}>
+              Continue with keyboard or touch
+            </button>
+          </div>
+        </section>
+      ) : null}
+
+      {screen === "playing" && manualPaused && !backgroundResumeRequired ? (
         <section
           ref={flowDialogRef}
           className="flow-card flow-card--modal"
@@ -1337,7 +1693,7 @@ export function GameExperience({
         </section>
       ) : null}
 
-      {screen === "playing" && mediaPause && !manualPaused ? (
+      {screen === "playing" && mediaPause && !manualPaused && !backgroundResumeRequired ? (
         <section
           ref={flowDialogRef}
           className="flow-card flow-card--modal"
@@ -1357,7 +1713,11 @@ export function GameExperience({
             </p>
           ) : null}
           <div className="flow-actions">
-            {media.resumeRequired && !voiceProcessingFailed ? (
+            {media.microphone.issue === "track-muted" ? (
+              <p role="status">
+                Waiting for the browser or operating system to unmute the microphone.
+              </p>
+            ) : media.resumeRequired && !voiceProcessingFailed ? (
               <button type="button" className="primary-action" onClick={resumeMedia}>
                 Resume microphone
               </button>
@@ -1455,9 +1815,13 @@ export function GameExperience({
         <SettingsPanel
           data={localData}
           headingRef={screenHeadingRef}
+          referenceEvidence={referenceEvidence}
+          referenceEvidenceEnabled={referenceEvidenceEnabled}
+          onArmReferenceEvidence={armReferenceEvidence}
           onChange={changeSettings}
           onClose={closeSettings}
           onRecalibrate={recalibrate}
+          onRefreshReferenceEvidence={captureReferenceEvidence}
           onReset={resetLocalData}
           onThresholdChange={changeManualThreshold}
           onUpdateHostChange={onPwaUpdateHostChange}
@@ -1492,6 +1856,16 @@ export function GameExperience({
         <span>
           {inputMode === "voice" ? "Microphone + fallback ready" : "Keyboard + touch ready"}
         </span>
+        {referenceEvidenceEnabled && referenceEvidence ? (
+          <span data-testid="reference-evidence-progress">
+            Reference evidence{" "}
+            {referenceEvidence.completedAtUtc
+              ? referenceEvidence.verdict.pass
+                ? "complete · pass"
+                : "complete · review failed checks"
+              : `${formatEvidenceDuration(referenceEvidence.activeEvidenceMs)} / ${formatEvidenceDuration(REFERENCE_EVIDENCE_DURATION_MS)} active`}
+          </span>
+        ) : null}
       </footer>
     </div>
   );
@@ -1514,7 +1888,7 @@ function containDialogFocus(
   }
 
   const focusable = [
-    ...panel.querySelectorAll<HTMLElement>("button, input, select, [tabindex]"),
+    ...panel.querySelectorAll<HTMLElement>("button, input, select, textarea, [tabindex]"),
   ].filter(
     (element) =>
       !element.hasAttribute("disabled") && !element.hasAttribute("hidden") && element.tabIndex >= 0,
@@ -1538,34 +1912,58 @@ function containDialogFocus(
   }
 }
 
+function referenceEvidenceRequested() {
+  return (
+    typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).get("reference-evidence") === "1"
+  );
+}
+
+function formatEvidenceDuration(durationMs: number) {
+  const totalSeconds = Math.floor(Math.max(0, durationMs) / 1_000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
 interface SettingsPanelProps {
   readonly data: LocalGameData;
   readonly headingRef: React.RefObject<HTMLHeadingElement | null>;
+  readonly onArmReferenceEvidence: () => void;
   readonly onChange: (patch: Partial<GameSettings>) => LocalGameData;
   readonly onClose: () => void;
   readonly onRecalibrate: () => void;
+  readonly onRefreshReferenceEvidence: () => void;
   readonly onReset: () => void;
   readonly onThresholdChange: (threshold: number) => void;
   readonly onUpdateHostChange?: (host: HTMLElement | null) => void;
+  readonly referenceEvidence: ReferenceEvidenceSnapshot | null;
+  readonly referenceEvidenceEnabled: boolean;
   readonly runActive: boolean;
 }
 
 function SettingsPanel({
   data,
   headingRef,
+  onArmReferenceEvidence,
   onChange,
   onClose,
   onRecalibrate,
+  onRefreshReferenceEvidence,
   onReset,
   onThresholdChange,
   onUpdateHostChange,
+  referenceEvidence,
+  referenceEvidenceEnabled,
   runActive,
 }: SettingsPanelProps) {
   const [confirmingReset, setConfirmingReset] = useState(false);
+  const [diagnosticsCopyStatus, setDiagnosticsCopyStatus] = useState("");
   const panelRef = useRef<HTMLElement>(null);
   const thresholdPercent = Math.round(
     (data.calibration?.jumpEnterLevel ?? MIN_MANUAL_THRESHOLD) * 100,
   );
+  const referenceEvidenceJson = referenceEvidence ? JSON.stringify(referenceEvidence, null, 2) : "";
 
   return (
     <section
@@ -1697,6 +2095,93 @@ function SettingsPanel({
           Only valid runs that reach a local results screen can update these bests.
         </p>
       </section>
+
+      {referenceEvidenceEnabled ? (
+        <section className="settings-group" aria-labelledby="reference-evidence-title">
+          <h3 id="reference-evidence-title">Reference-phone evidence</h3>
+          <p className="settings-help">
+            This local recorder keeps only baseline, final, and maximum counters. It counts visible
+            voice play only while microphone and camera resources are active, freezes after ten
+            active minutes, and never persists media or voice levels.
+          </p>
+          <dl className="settings-stats">
+            <div>
+              <dt>Active evidence</dt>
+              <dd>
+                {referenceEvidence
+                  ? `${formatEvidenceDuration(referenceEvidence.activeEvidenceMs)} / ${formatEvidenceDuration(REFERENCE_EVIDENCE_DURATION_MS)}`
+                  : "Not armed"}
+              </dd>
+            </div>
+            <div>
+              <dt>Result</dt>
+              <dd>
+                {referenceEvidence?.completedAtUtc
+                  ? referenceEvidence.verdict.pass
+                    ? "Pass"
+                    : "Review failed checks"
+                  : "Pending"}
+              </dd>
+            </div>
+          </dl>
+          <div className="flow-actions flow-actions--inline">
+            <button
+              type="button"
+              className="secondary-action"
+              disabled={!runActive}
+              onClick={() => {
+                setDiagnosticsCopyStatus("");
+                onArmReferenceEvidence();
+              }}
+            >
+              {referenceEvidence ? "Restart evidence capture" : "Arm evidence capture"}
+            </button>
+            <button
+              type="button"
+              className="secondary-action"
+              disabled={!referenceEvidence}
+              onClick={onRefreshReferenceEvidence}
+            >
+              Refresh evidence
+            </button>
+            <button
+              type="button"
+              className="secondary-action"
+              disabled={!referenceEvidence}
+              onClick={() => {
+                if (!navigator.clipboard?.writeText || !referenceEvidenceJson) {
+                  setDiagnosticsCopyStatus(
+                    "Clipboard unavailable. Select and copy the JSON field below.",
+                  );
+                  return;
+                }
+                void navigator.clipboard.writeText(referenceEvidenceJson).then(
+                  () => setDiagnosticsCopyStatus("Reference evidence copied."),
+                  () =>
+                    setDiagnosticsCopyStatus(
+                      "Copy was blocked. Select and copy the JSON field below.",
+                    ),
+                );
+              }}
+            >
+              Copy evidence JSON
+            </button>
+          </div>
+          <label className="setting-row setting-row--stacked">
+            <span>
+              Selectable local evidence JSON
+              <small>Attach this text to the candidate evidence record; do not edit it.</small>
+            </span>
+            <textarea
+              aria-label="Reference evidence JSON"
+              readOnly
+              rows={12}
+              value={referenceEvidenceJson}
+            />
+          </label>
+          {diagnosticsCopyStatus ? <p role="status">{diagnosticsCopyStatus}</p> : null}
+        </section>
+      ) : null}
 
       <section className="settings-group settings-danger" aria-labelledby="local-data-title">
         <h3 id="local-data-title">Local data</h3>

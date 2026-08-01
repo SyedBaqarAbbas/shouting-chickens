@@ -85,7 +85,7 @@ describe("PhaserGameRuntime", () => {
         distance: 0,
         landingCount: 0,
       });
-      expect(runtime.diagnostics()).toEqual({
+      expect(runtime.diagnostics()).toMatchObject({
         state: "mounted",
         activeBodies: 1,
         activeParticles: 0,
@@ -113,7 +113,7 @@ describe("PhaserGameRuntime", () => {
       runtime.destroy();
       runtime.destroy();
 
-      expect(runtime.diagnostics()).toEqual({
+      expect(runtime.diagnostics()).toMatchObject({
         state: "destroyed",
         activeBodies: 0,
         activeParticles: 0,
@@ -172,6 +172,116 @@ describe("PhaserGameRuntime", () => {
     runtime.resume();
     runtime.advanceFrame(FIXED_STEP_MS);
     expect(runtime.snapshot().tick).toBe(2);
+    runtime.destroy();
+  });
+
+  it("forwards physical audio lifecycle calls only while mounted", async () => {
+    const suspendGameAudioForBackground = vi.fn(async () => undefined);
+    const resumeGameAudioFromGesture = vi.fn(async () => true);
+    const runtime = new PhaserGameRuntime({
+      phaserFactory: () => ({
+        game: {
+          destroy: vi.fn(),
+          resumeGameAudioFromGesture,
+          suspendGameAudioForBackground,
+        },
+        ready: Promise.resolve(),
+      }),
+      inputSourceFactory: () => new LifecycleInput(),
+      renderResolution: 1,
+      clock: new ManualClock(),
+    });
+
+    expect(await runtime.resumeGameAudioFromGesture()).toBe(false);
+    await runtime.mount(document.createElement("div"));
+    expect(await runtime.resumeGameAudioFromGesture()).toBe(true);
+    await runtime.suspendGameAudioForBackground();
+    expect(resumeGameAudioFromGesture).toHaveBeenCalledOnce();
+    expect(suspendGameAudioForBackground).toHaveBeenCalledOnce();
+
+    runtime.destroy();
+    expect(await runtime.resumeGameAudioFromGesture()).toBe(false);
+  });
+
+  it("publishes coarse, privacy-safe local performance diagnostics", async () => {
+    const clock = new ManualClock(100);
+    let jumpPending = true;
+    let inputLatencyPending = true;
+    const input: InputSource = {
+      async start() {},
+      consumeInputLatencySamples() {
+        if (!inputLatencyPending) {
+          return [];
+        }
+        inputLatencyPending = false;
+        return [{ latencyMs: 60, provenance: "voice" as const }];
+      },
+      latest() {
+        if (jumpPending) {
+          jumpPending = false;
+          return { atMs: 40, jumpPressed: true, lift: 1 };
+        }
+        return { atMs: clock.now(), jumpPressed: false, lift: 0 };
+      },
+      stop() {},
+    };
+    const runtime = new PhaserGameRuntime({
+      phaserFactory: () => ({
+        game: {
+          destroy: vi.fn(),
+          diagnostics: () => ({
+            activeTimers: 0,
+            pooledObjects: 72,
+            renderer: "webgl" as const,
+            sceneObjects: 86,
+          }),
+        },
+        ready: Promise.resolve(),
+      }),
+      inputSourceFactory: () => input,
+      renderResolution: 1,
+      clock,
+    });
+    const container = document.createElement("div");
+
+    await runtime.mount(container);
+    runtime.startRun(RUN_OPTIONS);
+    runtime.advanceFrame(FIXED_STEP_MS, 18);
+    const diagnostics = runtime.localDiagnostics();
+
+    expect(diagnostics).toMatchObject({
+      schemaVersion: 1,
+      run: {
+        gameplayVersion: RUN_OPTIONS.gameplayVersion,
+        seed: RUN_OPTIONS.seed,
+      },
+      renderer: "webgl",
+      performance: {
+        frameBudgetMet: true,
+        frameP95Ms: 18,
+        frameSamples: 1,
+        inputBudgetMet: true,
+        inputSamples: 1,
+        inputToIntentP95Ms: 60,
+        voiceInputBudgetMet: true,
+        voiceInputSamples: 1,
+        voiceInputToIntentP95Ms: 60,
+      },
+      resources: {
+        activeBodies: 1,
+        sceneObjects: 86,
+      },
+    });
+    expect(container.dataset.localDiagnostics).toBe(JSON.stringify(diagnostics));
+    expect(JSON.stringify(diagnostics)).not.toMatch(
+      /dbfs|deviceId|normalizedInput|normalizedLevel|peak|raw|rms/i,
+    );
+    runtime.resetLocalPerformanceDiagnostics();
+    expect(runtime.localDiagnostics().performance).toMatchObject({
+      frameSamples: 0,
+      inputSamples: 0,
+      voiceInputSamples: 0,
+    });
     runtime.destroy();
   });
 
@@ -512,7 +622,8 @@ describe("PhaserGameRuntime", () => {
     const container = document.createElement("div");
     await runtime.mount(container);
 
-    let stableDiagnostics: ReturnType<typeof runtime.diagnostics> | null = null;
+    let stableDiagnostics: Omit<ReturnType<typeof runtime.diagnostics>, "performance"> | null =
+      null;
     let stableCollisionId: string | null = null;
 
     for (let run = 0; run < 20; run += 1) {
@@ -540,9 +651,10 @@ describe("PhaserGameRuntime", () => {
         },
       });
 
-      const diagnostics = runtime.diagnostics();
-      stableDiagnostics ??= diagnostics;
-      expect(diagnostics).toEqual(stableDiagnostics);
+      const resourceDiagnostics = { ...runtime.diagnostics() };
+      delete (resourceDiagnostics as Partial<typeof resourceDiagnostics>).performance;
+      stableDiagnostics ??= resourceDiagnostics;
+      expect(resourceDiagnostics).toEqual(stableDiagnostics);
 
       for (let tick = 0; tick < 600 && runtime.snapshot().phase === "running"; tick += 1) {
         runtime.advanceFrame(FIXED_STEP_MS);

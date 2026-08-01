@@ -2,6 +2,7 @@ const MIN_DBFS = -120;
 const CLIPPING_AMPLITUDE = 0.995;
 
 export type EnergyScalarFrame = {
+  readonly capturedAtMs: number;
   readonly rms: number;
   readonly dbfs: number;
   readonly peak: number;
@@ -31,7 +32,10 @@ export function amplitudeToDbfs(amplitude: number): number {
   return clamp(20 * Math.log10(amplitude), MIN_DBFS, 0);
 }
 
-export function energyScalarFromSamples(samples: ArrayLike<number>): EnergyScalarFrame {
+export function energyScalarFromSamples(
+  samples: ArrayLike<number>,
+  capturedAtMs = 0,
+): EnergyScalarFrame {
   let peak = 0;
 
   for (let index = 0; index < samples.length; index += 1) {
@@ -43,6 +47,7 @@ export function energyScalarFromSamples(samples: ArrayLike<number>): EnergyScala
 
   const rms = rootMeanSquare(samples);
   return {
+    capturedAtMs,
     clipped: peak >= CLIPPING_AMPLITUDE,
     dbfs: amplitudeToDbfs(rms),
     peak,
@@ -62,9 +67,12 @@ export function parseEnergyScalarFrame(value: unknown): EnergyScalarFrame | null
     typeof candidate.dbfs !== "number" ||
     typeof candidate.peak !== "number" ||
     typeof candidate.clipped !== "boolean" ||
+    typeof candidate.capturedAtMs !== "number" ||
     !Number.isFinite(candidate.rms) ||
     !Number.isFinite(candidate.dbfs) ||
     !Number.isFinite(candidate.peak) ||
+    !Number.isFinite(candidate.capturedAtMs) ||
+    candidate.capturedAtMs < 0 ||
     candidate.rms < 0 ||
     candidate.rms > 1 ||
     candidate.dbfs < MIN_DBFS ||
@@ -75,6 +83,7 @@ export function parseEnergyScalarFrame(value: unknown): EnergyScalarFrame | null
   }
 
   return {
+    capturedAtMs: candidate.capturedAtMs,
     clipped: candidate.clipped,
     dbfs: candidate.dbfs,
     peak: candidate.peak,

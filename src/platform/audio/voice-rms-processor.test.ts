@@ -36,6 +36,7 @@ describe("voice RMS AudioWorklet", () => {
 
     runInNewContext(script, {
       AudioWorkletProcessor: FakeAudioWorkletProcessor,
+      currentTime: 1.25,
       registerProcessor(name: string, processor: RegisteredProcessor) {
         registration.name = name;
         registration.Processor = processor;
@@ -53,7 +54,7 @@ describe("voice RMS AudioWorklet", () => {
     expect(registration.name).toBe("voice-rms-processor");
     expect(posted).toEqual([
       {
-        ...energyScalarFromSamples(samples),
+        ...energyScalarFromSamples(samples, 1_250),
         type: "voice-energy",
       },
     ]);

@@ -67,8 +67,9 @@ type EffectParticleView = {
   velocityY: number;
 };
 
-type CreateGameRuntimeOptions = {
+export type CreateGameRuntimeOptions = {
   clock?: Clock;
+  gameAudioDirector?: GameAudioDirector;
   inputSourceFactory?: InputSourceFactory;
   phaserFactory?: PhaserMountFactory;
   renderResolution?: number;
@@ -146,7 +147,6 @@ class ChickenWorldScene extends Phaser.Scene {
   private readonly collectibleViews: Phaser.GameObjects.Image[] = [];
   private readonly warningViews: WarningView[] = [];
   private readonly effectParticles: EffectParticleView[] = [];
-  private readonly audio = new GameAudioDirector();
   private chicken!: Phaser.GameObjects.Sprite;
   private phaseShade!: Phaser.GameObjects.Rectangle;
   private phaseLabel!: Phaser.GameObjects.Text;
@@ -168,6 +168,8 @@ class ChickenWorldScene extends Phaser.Scene {
     private readonly host: PhaserFrameHost,
     private readonly renderResolution: number,
     private readonly ready: () => void,
+    private readonly audio: GameAudioDirector,
+    private readonly ownsAudio: boolean,
   ) {
     super(WORLD_SCENE_KEY);
   }
@@ -179,13 +181,19 @@ class ChickenWorldScene extends Phaser.Scene {
     this.createChicken();
     this.createStatusLayer();
     this.render(this.host.snapshot());
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.audio.destroy());
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      if (this.ownsAudio) {
+        this.audio.destroy();
+      } else {
+        this.audio.reset();
+      }
+    });
     this.host.onSceneReady();
     this.ready();
   }
 
   update(_time: number, deltaMs: number) {
-    this.render(this.host.advanceFrame(deltaMs));
+    this.render(this.host.advanceFrame(deltaMs, this.game.loop.rawDelta));
   }
 
   resourceDiagnostics() {
@@ -226,10 +234,20 @@ class ChickenWorldScene extends Phaser.Scene {
             !GAME_ART_FRAME_RECTS.some((frame) => frame.name === String(object.frame.name))),
       ).length,
       audioCueCount: audio.cueCount,
+      audioActiveVoices: audio.activeVoices,
+      audioGraphNodes: audio.graphNodes,
       audioState: audio.state,
       chickenArtFrame: this.lastChickenFrame,
       lastAudioCue: audio.lastCue,
     };
+  }
+
+  suspendGameAudioForBackground() {
+    return this.audio.suspendForBackground();
+  }
+
+  resumeGameAudioFromGesture() {
+    return this.audio.resumeFromGesture();
   }
 
   private configureLogicalCamera() {
@@ -717,8 +735,7 @@ class ChickenWorldScene extends Phaser.Scene {
   ) {
     const previous = this.previousSnapshot;
     if (previous) {
-      const collected = snapshot.collectedCollectibleIds.length;
-      if (collected > previous.collectedCollectibleIds.length) {
+      if (snapshot.statistics.collectibles > previous.statistics.collectibles) {
         this.spawnParticles(snapshot.chicken.x + 18, snapshot.chicken.y - 8, 8);
       }
       if (snapshot.phase === "dead" && previous.phase !== "dead") {
@@ -1076,13 +1093,17 @@ function drawGeneratedFallbackFrame(context: CanvasRenderingContext2D, index: nu
   }
 }
 
-function mountPhaserGame({ parent, renderResolution, host }: Parameters<PhaserMountFactory>[0]) {
+function mountPhaserGame(
+  { parent, renderResolution, host }: Parameters<PhaserMountFactory>[0],
+  audio = new GameAudioDirector(),
+  ownsAudio = true,
+) {
   let markReady: () => void = () => {};
   const ready = new Promise<void>((resolve) => {
     markReady = resolve;
   });
 
-  const worldScene = new ChickenWorldScene(host, renderResolution, markReady);
+  const worldScene = new ChickenWorldScene(host, renderResolution, markReady, audio, ownsAudio);
   const phaserGame = new Phaser.Game({
     type: Phaser.AUTO,
     parent,
@@ -1117,7 +1138,24 @@ function mountPhaserGame({ parent, renderResolution, host }: Parameters<PhaserMo
       phaserGame.destroy(removeCanvas);
     },
     diagnostics() {
-      return worldScene.resourceDiagnostics();
+      return {
+        ...worldScene.resourceDiagnostics(),
+        renderer:
+          phaserGame.renderer.type === Phaser.WEBGL
+            ? ("webgl" as const)
+            : phaserGame.renderer.type === Phaser.CANVAS
+              ? ("canvas" as const)
+              : ("unknown" as const),
+      };
+    },
+    suspendGameAudioForBackground() {
+      phaserGame.loop.sleep();
+      return worldScene.suspendGameAudioForBackground();
+    },
+    resumeGameAudioFromGesture() {
+      const resumed = worldScene.resumeGameAudioFromGesture();
+      phaserGame.loop.wake();
+      return resumed;
     },
   };
 
@@ -1137,10 +1175,15 @@ export function createGameRuntime(options: CreateGameRuntimeOptions = {}) {
         new TouchInputSource(clock, parent),
       ]));
 
+  const ownsAudio = options.gameAudioDirector === undefined;
+  const gameAudioDirector = options.gameAudioDirector ?? new GameAudioDirector();
+
   return new PhaserGameRuntime({
     clock,
     inputSourceFactory,
-    phaserFactory: options.phaserFactory ?? mountPhaserGame,
+    phaserFactory:
+      options.phaserFactory ??
+      ((mountOptions) => mountPhaserGame(mountOptions, gameAudioDirector, ownsAudio)),
     renderResolution,
   });
 }
