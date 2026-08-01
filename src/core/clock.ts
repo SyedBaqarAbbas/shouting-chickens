@@ -2,7 +2,15 @@ import type { Clock } from "./contracts";
 
 export class SystemClock implements Clock {
   now() {
-    return Date.now();
+    const timer = globalThis.performance;
+    const monotonicNow = timer?.now();
+    const timeOrigin = timer?.timeOrigin;
+    return typeof timeOrigin === "number" &&
+      Number.isFinite(timeOrigin) &&
+      typeof monotonicNow === "number" &&
+      Number.isFinite(monotonicNow)
+      ? timeOrigin + monotonicNow
+      : Date.now();
   }
 }
 

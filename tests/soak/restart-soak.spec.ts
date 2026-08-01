@@ -51,11 +51,11 @@ test("runs the sealed game without resource or heap growth for ten wall-clock mi
   expect(stable.media.activeCameraTracks).toBe(1);
   expect(stable.media.activeMicrophoneTracks).toBe(1);
   expect(stable.media.activeTracks).toBe(2);
-  const startedAt = Date.now();
+  const startedAt = globalThis.performance.now();
   let restarts = 0;
   const heapSamples: number[] = [];
 
-  while (Date.now() - startedAt < soakDurationMs) {
+  while (globalThis.performance.now() - startedAt < soakDurationMs) {
     await expect(surface).toHaveAttribute("data-simulation-phase", "dead", {
       timeout: 12_000,
     });
@@ -128,7 +128,7 @@ test("runs the sealed game without resource or heap growth for ten wall-clock mi
     restarts += 1;
   }
 
-  const elapsedWallMs = Date.now() - startedAt;
+  const elapsedWallMs = globalThis.performance.now() - startedAt;
   expect(elapsedWallMs).toBeGreaterThanOrEqual(soakDurationMs);
   expect(restarts).toBeGreaterThanOrEqual(Math.max(2, Math.floor(soakDurationMs / 12_000)));
   expect(runtimeErrors).toEqual([]);

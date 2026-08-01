@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { ManualClock } from "../../core/clock";
+import { ManualClock, SystemClock } from "../../core/clock";
 import type { CalibrationProfile } from "../../core/contracts";
 import { energyScalarFromSamples } from "../../input";
 import type { MediaResourceStatus, MicrophoneAudioGraph } from "../media/BrowserMediaSession";
@@ -136,6 +136,50 @@ function processingOptions() {
 }
 
 describe("BrowserVoiceInputSource", () => {
+  it("keeps capture latency monotonic across a wall-clock adjustment", async () => {
+    const harness = createSessionHarness({ worklet: true });
+    const node = new FakeWorkletNode();
+    let monotonicMs = 100;
+    let wallMs = 10_000;
+    const performanceNow = vi
+      .spyOn(globalThis.performance, "now")
+      .mockImplementation(() => monotonicMs);
+    const dateNow = vi.spyOn(Date, "now").mockImplementation(() => wallMs);
+
+    try {
+      const input = new BrowserVoiceInputSource(
+        harness.session,
+        new SystemClock(),
+        PROFILE,
+        { createAudioWorkletNode: () => node as unknown as AudioWorkletNode },
+        processingOptions(),
+      );
+      await input.start();
+
+      monotonicMs = 120;
+      wallMs = 10_020;
+      node.port.emit({
+        ...energyScalarFromSamples(new Float32Array(32).fill(0.5), 20),
+        type: "voice-energy",
+      });
+      expect(input.consumeInputLatencyMs()).toBe(0);
+
+      input.resetRunState();
+      monotonicMs = 150;
+      wallMs = 11_550;
+      node.port.emit({
+        ...energyScalarFromSamples(new Float32Array(32).fill(0.5), 50),
+        type: "voice-energy",
+      });
+
+      expect(input.consumeInputLatencySamples()).toEqual([{ latencyMs: 0, provenance: "voice" }]);
+      input.stop();
+    } finally {
+      performanceNow.mockRestore();
+      dateNow.mockRestore();
+    }
+  });
+
   it("measures acoustic onset through attack smoothing to intent creation", async () => {
     const harness = createSessionHarness({ worklet: true });
     const clock = new ManualClock(1_000);
