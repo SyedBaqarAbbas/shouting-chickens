@@ -38,6 +38,13 @@ import {
   REFERENCE_EVIDENCE_DURATION_MS,
   type ReferenceEvidenceSnapshot,
 } from "./LocalDiagnosticsRecorder";
+import { ReplayPreview } from "./ReplayPreview";
+import {
+  ReplayCompositor,
+  ReplayRecorder,
+  type HudSnapshot,
+  type RecordedReplay,
+} from "../platform/recording";
 
 type Screen =
   | "permission"
@@ -200,6 +207,19 @@ export function GameExperience({
     second: -1,
   });
 
+  const [recordedReplay, setRecordedReplay] = useState<RecordedReplay | null>(null);
+  const replayCompositorRef = useRef<ReplayCompositor | null>(null);
+  const replayRecorderRef = useRef<ReplayRecorder | null>(null);
+  const hudSnapshotRef = useRef<HudSnapshot | null>(null);
+
+  const disposeReplay = useCallback(() => {
+    replayRecorderRef.current?.dispose();
+    replayRecorderRef.current = null;
+    replayCompositorRef.current?.destroy();
+    replayCompositorRef.current = null;
+    setRecordedReplay(null);
+  }, []);
+
   const commitLocalData = useCallback(
     (next: LocalGameData) => {
       const saved = localDataStore.write(next);
@@ -255,7 +275,6 @@ export function GameExperience({
   const keepGameMounted =
     screen === "playing" ||
     screen === "results" ||
-    screen === "runtime-error" ||
     (screen === "settings" &&
       (settingsReturnScreen === "playing" || settingsReturnScreen === "results"));
 
@@ -291,8 +310,54 @@ export function GameExperience({
       voiceTestGeneration.current += 1;
       calibrationRef.current?.stop();
       voiceInputRef.current?.stop();
+      disposeReplay();
     };
-  }, []);
+  }, [disposeReplay]);
+
+  useEffect(() => {
+    if (screen !== "playing" || !localData.settings.replayConsent) {
+      return;
+    }
+
+    let active = true;
+    const compositor = new ReplayCompositor({
+      fps: 30,
+      getHudSnapshot: () => hudSnapshotRef.current,
+    });
+    const recorder = new ReplayRecorder();
+    replayCompositorRef.current = compositor;
+    replayRecorderRef.current = recorder;
+
+    const updateSources = () => {
+      if (!active) {
+        return;
+      }
+      const phaserCanvas = gameSurfaceRef.current?.getCanvas();
+      const cameraVideo = document.querySelector<HTMLVideoElement>(".camera-video");
+      compositor.updateSources({
+        cameraVideoElement: cameraVideo,
+        phaserCanvasElement: phaserCanvas,
+      });
+    };
+
+    updateSources();
+    const interval = window.setInterval(updateSources, 500);
+    compositor.start();
+
+    const stream = compositor.getStream();
+    if (stream) {
+      recorder.start(stream);
+    }
+
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+      compositor.destroy();
+      if (!recorder.isRecording) {
+        recorder.dispose();
+      }
+    };
+  }, [localData.settings.replayConsent, screen]);
 
   useEffect(() => {
     if (screen === "settings" || !restoreSettingsFocus.current) {
@@ -742,9 +807,10 @@ export function GameExperience({
     setFlowError("");
     expectedRunId.current = 1;
     recordedRunId.current = null;
+    disposeReplay();
     setCountdown(3);
     setScreen("countdown");
-  }, [gameAudioDirector, inputMode, voiceInput]);
+  }, [disposeReplay, gameAudioDirector, inputMode, voiceInput]);
 
   useEffect(() => {
     if (screen !== "countdown") {
@@ -975,6 +1041,17 @@ export function GameExperience({
             },
           });
         }
+        if (replayRecorderRef.current?.isRecording) {
+          const recorder = replayRecorderRef.current;
+          const compositor = replayCompositorRef.current;
+          compositor?.stop();
+          void recorder.stop().then((recorded) => {
+            if (mounted.current) {
+              setRecordedReplay(recorded);
+            }
+            compositor?.destroy();
+          });
+        }
         setSummary(event.value);
         setScreen("results");
         setLiveStatus(
@@ -986,6 +1063,12 @@ export function GameExperience({
       if (event.type !== "snapshot") {
         return;
       }
+
+      hudSnapshotRef.current = {
+        elapsedMs: event.value.elapsedMs,
+        level: event.value.normalizedInput,
+        score: event.value.score,
+      };
 
       const second = Math.floor(event.value.elapsedMs / 1_000);
       const band =
@@ -1105,6 +1188,7 @@ export function GameExperience({
     }
     expectedRunId.current += 1;
     recordedRunId.current = null;
+    disposeReplay();
     setSummary(null);
     setManualPaused(false);
     backgroundResumeGeneration.current += 1;
@@ -1119,7 +1203,7 @@ export function GameExperience({
     requestPauseFocus();
     setScreen("playing");
     setLiveStatus("Run restarted.");
-  }, [inputMode, requestPauseFocus]);
+  }, [disposeReplay, inputMode, requestPauseFocus]);
 
   const resumeManualRun = useCallback(() => {
     try {
@@ -1202,13 +1286,14 @@ export function GameExperience({
   }, [inputMode, session, voiceInput]);
 
   const quitToReady = useCallback(() => {
+    disposeReplay();
     setSummary(null);
     setManualPaused(false);
     backgroundResumeGeneration.current += 1;
     setBackgroundResumeRequired(false);
     setRuntimeError("");
     setScreen("ready");
-  }, []);
+  }, [disposeReplay]);
 
   const openSettings = useCallback(() => {
     if (
@@ -1550,6 +1635,12 @@ export function GameExperience({
               </p>
             </div>
           ) : null}
+          <SettingCheckbox
+            checked={localData.settings.replayConsent}
+            description="Record 15s of video locally to preview, share, or download. Replay is off by default and never uploaded."
+            label="Enable 15s local replay capture"
+            onChange={(replayConsent) => updateSettings({ replayConsent })}
+          />
           <div className="flow-actions">
             <button type="button" className="primary-action" onClick={startCountdown}>
               Start run
@@ -1823,6 +1914,12 @@ export function GameExperience({
               Accessibility &amp; settings
             </button>
           </div>
+          <ReplayPreview
+            summary={summary}
+            replay={recordedReplay}
+            onDeleteReplay={disposeReplay}
+            onLiveStatusChange={setLiveStatus}
+          />
           <div className="pwa-update-slot" ref={onPwaUpdateHostChange} />
         </section>
       ) : null}
@@ -1846,15 +1943,23 @@ export function GameExperience({
       ) : null}
 
       {screen === "runtime-error" ? (
-        <section className="flow-card flow-card--modal" role="alert" aria-labelledby="error-title">
+        <section
+          ref={flowDialogRef}
+          className="flow-card flow-card--modal"
+          role="alert"
+          aria-labelledby="error-title"
+          onKeyDown={(event) => containDialogFocus(event, flowDialogRef.current, quitToReady)}
+        >
           <p className="flow-step">Game error</p>
           <h2 id="error-title" ref={screenHeadingRef} tabIndex={-1}>
             The course could not start
           </h2>
           <p>{runtimeError || "The game renderer stopped unexpectedly."}</p>
-          <button type="button" className="primary-action" onClick={quitToReady}>
-            Return to ready screen
-          </button>
+          <div className="flow-actions">
+            <button type="button" className="primary-action" onClick={quitToReady}>
+              Return to ready screen
+            </button>
+          </div>
         </section>
       ) : null}
 
@@ -2084,6 +2189,12 @@ function SettingsPanel({
           description="Allow impact shake feedback when an effect supports it."
           label="Screen shake"
           onChange={(screenShakeEnabled) => onChange({ screenShakeEnabled })}
+        />
+        <SettingCheckbox
+          checked={data.settings.replayConsent}
+          description="Record 15s of video locally to preview, share, or download. Replay is off by default and never uploaded."
+          label="Enable 15s local replay capture"
+          onChange={(replayConsent) => onChange({ replayConsent })}
         />
       </fieldset>
 

@@ -36,6 +36,7 @@ export interface GameSurfaceProps {
 }
 
 export type GameSurfaceHandle = {
+  getCanvas(): HTMLCanvasElement | null;
   readLocalDiagnostics(): SafeLocalRuntimeDiagnostics | null;
   resetLocalPerformanceDiagnostics(): void;
   resumeGameAudioFromGesture(): Promise<boolean>;
@@ -89,6 +90,9 @@ export const GameSurface = forwardRef<GameSurfaceHandle, GameSurfaceProps>(funct
   useImperativeHandle(
     ref,
     () => ({
+      getCanvas() {
+        return containerRef.current?.querySelector("canvas") ?? null;
+      },
       readLocalDiagnostics() {
         return runtimeRef.current?.localDiagnostics?.() ?? null;
       },
