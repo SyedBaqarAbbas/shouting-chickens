@@ -1,0 +1,119 @@
+name: Deploy current main
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: shouting-chickens-pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build current main for Pages
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    outputs:
+      app_version: ${{ steps.metadata.outputs.app_version }}
+      artifact_manifest_sha: ${{ steps.artifact.outputs.sha256 }}
+      commit_sha: ${{ steps.metadata.outputs.commit_sha }}
+
+    env:
+      PAGES_BASE_PATH: /shouting-chickens/
+
+    steps:
+      - name: Check out main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build and seal production artifact
+        run: npm run build
+
+      - name: Record release identity
+        id: metadata
+        shell: bash
+        run: |
+          echo "app_version=$(node -p \"require('./package.json').version\")" >> "$GITHUB_OUTPUT"
+          echo "commit_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Record sealed artifact digest
+        id: artifact
+        shell: bash
+        run: |
+          echo "sha256=$(sha256sum dist/artifact-manifest.json | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
+
+      - name: Upload current Pages artifact
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: dist/
+
+  deploy:
+    name: Deploy current main
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    outputs:
+      page_url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
+
+      - name: Deploy current Pages artifact
+        id: deployment
+        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0
+
+  postdeploy:
+    name: Verify deployed game
+    needs:
+      - build
+      - deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check out deployed source revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.build.outputs.commit_sha }}
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Verify the deployed artifact
+        env:
+          APP_VERSION: ${{ needs.build.outputs.app_version }}
+          ARTIFACT_MANIFEST_SHA: ${{ needs.build.outputs.artifact_manifest_sha }}
+          COMMIT_SHA: ${{ needs.build.outputs.commit_sha }}
+          DEPLOY_URL: ${{ needs.deploy.outputs.page_url }}
+        run: npm run test:postdeploy
