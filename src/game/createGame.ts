@@ -662,24 +662,28 @@ class ChickenWorldScene extends Phaser.Scene {
           .setVisible(true);
       } else if (hazard.kind === "water") {
         view.spike.setVisible(false);
+        view.water.setVisible(false);
         view.quietZone.setVisible(false);
         view.quietGlyph.setVisible(false);
-        view.water
-          .setPosition(hazard.x - distance + hazard.width / 2, hazard.top)
-          .setSize(hazard.width, LOGICAL_GAME_HEIGHT - hazard.top)
-          .setScale(1)
-          .setTilePosition(reducedMotion ? 0 : snapshot.tick * 0.55, 0)
-          .setVisible(true);
       } else if (hazard.kind === "quiet-zone") {
-        view.spike.setVisible(false);
         view.water.setVisible(false);
         const centerX = hazard.x - distance + hazard.width / 2;
-        const centerY = hazard.top + (hazard.bottom - hazard.top) / 2;
-        view.quietZone
+        view.spike
+          .setFrame("spike")
           .setPosition(centerX, hazard.top)
-          .setDisplaySize(hazard.width, hazard.bottom - hazard.top)
+          .setDisplaySize(hazard.width, 24)
+          .setAngle(180)
           .setVisible(true);
-        view.quietGlyph.setPosition(centerX, centerY).setVisible(true);
+
+        view.quietZone
+          .setPosition(centerX, hazard.top + 12)
+          .setDisplaySize(hazard.width, Math.max(10, hazard.bottom - (hazard.top + 12)))
+          .setVisible(true);
+
+        view.quietGlyph
+          .setPosition(centerX, hazard.top + 32)
+          .setText("🤫 SHH...")
+          .setVisible(true);
       }
     }
 
