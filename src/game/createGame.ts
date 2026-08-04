@@ -667,17 +667,13 @@ class ChickenWorldScene extends Phaser.Scene {
         view.quietGlyph.setVisible(false);
       } else if (hazard.kind === "quiet-zone") {
         view.water.setVisible(false);
+        view.quietZone.setVisible(false);
         const centerX = hazard.x - distance + hazard.width / 2;
         view.spike
           .setFrame("spike")
           .setPosition(centerX, hazard.top)
           .setDisplaySize(hazard.width, 24)
           .setAngle(180)
-          .setVisible(true);
-
-        view.quietZone
-          .setPosition(centerX, hazard.top + 12)
-          .setDisplaySize(hazard.width, Math.max(10, hazard.bottom - (hazard.top + 12)))
           .setVisible(true);
 
         view.quietGlyph
