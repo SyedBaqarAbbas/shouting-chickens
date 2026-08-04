@@ -108,15 +108,17 @@
 
   <!-- 8: spike (Mountains) -->
   <g transform="translate(640)">
-    <polygon points="2,80 32,16 62,80" class="mountain"/>
-    <polygon points="38,80 60,32 80,80" class="mountain-light"/>
-    <polygon points="32,16 22,38 42,38" class="body"/>
-    <polygon points="60,32 50,52 70,52" class="body"/>
+    <polygon points="0,80 32,10 64,80" class="mountain"/>
+    <polygon points="38,80 60,28 80,80" class="mountain-light"/>
+    <polygon points="32,10 22,34 42,34" class="body"/>
+    <polygon points="60,28 50,48 70,48" class="body"/>
+    <rect x="0" y="74" width="80" height="6" class="mountain"/>
   </g>
 
   <!-- 9: moving-hazard (Fire / Spikes) -->
   <g transform="translate(720)">
-    <polygon points="4,80 18,24 32,60 46,12 60,64 74,28 78,80" class="comb"/>
+    <polygon points="0,80 16,20 30,56 44,8 58,60 72,24 80,80" class="comb"/>
+    <rect x="0" y="74" width="80" height="6" class="comb"/>
   </g>
 
   <!-- 10: microphone -->

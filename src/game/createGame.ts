@@ -652,8 +652,8 @@ class ChickenWorldScene extends Phaser.Scene {
         view.quietGlyph.setVisible(false);
         view.spike
           .setFrame(hazard.kind === "moving-spike" ? "moving-hazard" : "spike")
-          .setPosition(hazard.x - distance + hazard.width / 2, hazard.baseTop)
-          .setDisplaySize(hazard.width, hazard.height)
+          .setPosition(hazard.x - distance + hazard.width / 2, hazard.baseTop + 6)
+          .setDisplaySize(hazard.width, hazard.height + 6)
           .setAngle(
             hazard.kind === "moving-spike" && !reducedMotion
               ? Math.sin(snapshot.tick * 0.12) * 2
