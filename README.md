@@ -71,8 +71,9 @@ Safari, Android Chrome, and installed desktop Chrome, Edge, Firefox, and Safari
 evidence remains separately required before the manual Pages publish gate.
 
 Use the [release process](docs/release/release-process.md),
-[physical-device checklist](docs/release/mvp-release-checklist.md), and
-[support matrix](docs/release/support-matrix.md). Use the
+[physical-device checklist](docs/release/mvp-release-checklist.md),
+[support matrix](docs/release/support-matrix.md), and
+[v0.1.0 release notes](docs/release/release-notes-0.1.0.md). Use the
 [rollback runbook](docs/release/pwa-rollback.md) to validate a known-good
 artifact and rehearse recovery without deploying it. The hosted artifact
 includes local Privacy and Support pages. The MVP processes microphone and
