@@ -11,6 +11,7 @@ describe("production Pages workflow policy", () => {
     expect(ci).toContain("paths-ignore:");
     expect(ci).toContain('".github/workflows/**"');
     expect(ci).toContain('"scripts/workflow-policy.test.ts"');
+    expect(ci).toContain('"tests/postdeploy/post-deploy.spec.ts"');
 
     const quality = requiredSection(ci, "  quality:", "  deploy:");
     for (const gate of [

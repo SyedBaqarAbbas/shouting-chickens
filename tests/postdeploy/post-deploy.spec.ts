@@ -90,7 +90,8 @@ test("the deployed HTTPS artifact keeps identity, support pages, assets, and fal
   });
   expect(artifact.files.length).toBeGreaterThan(0);
   expect(new Set(artifact.files.map((entry) => entry.path)).size).toBe(artifact.files.length);
-  for (const entry of artifact.files) {
+  // GitHub Pages consumes .nojekyll as a deployment control file and does not serve it.
+  for (const entry of artifact.files.filter((entry) => entry.path !== ".nojekyll")) {
     const response = await request.get(new URL(entry.path, deploymentUrl).href);
     expect(response.ok(), entry.path).toBe(true);
     const bytes = await response.body();
