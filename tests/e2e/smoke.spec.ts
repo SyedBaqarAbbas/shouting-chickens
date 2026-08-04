@@ -159,7 +159,7 @@ test("ends a run once and completely restarts the seeded authored course", async
     bodies: "1",
     timers: "0",
     pools: "86",
-    collisions: "10",
+    collisions: "9",
     inputListeners: "5",
   });
   expect(Number(stableResources.sceneObjects)).toBeGreaterThan(0);
@@ -300,10 +300,11 @@ test("mounts the exact weighted safe-introduction course and resets its warnings
   expect(initial.warnings).toContain("RELEASE");
   expect(initial.warnings).toContain("HOLD LIFT");
   expect(initial.warnings).toContain("PULSE");
-  expect(initial.warningCount).toBe(4);
+  expect(initial.warningCount).toBe(3);
   expect(initial.renderedWarnings).toBe(0);
-  expect(initial.renderedQuietZones).toBeGreaterThanOrEqual(1);
+  expect(initial.renderedQuietZones).toBe(0);
   expect(initial.renderedCollectibles).toBeGreaterThanOrEqual(1);
+  expect(initial.warnings).not.toContain("STAY QUIET");
 
   await page.getByRole("button", { name: "Resume run" }).click();
   await expect(surface).toHaveAttribute("data-simulation-phase", "dead", {

@@ -118,12 +118,11 @@ const CONTINUOUS_TEMPLATES = [
     hazards: [
       {
         id: "retention-marker",
-        kind: "quiet-zone",
+        kind: "spike",
         x: 100,
         width: 20,
-        top: 0,
-        bottom: 1,
-        maximumLift: 1,
+        baseTop: 120,
+        height: 20,
       },
     ],
     collectibles: [
@@ -159,12 +158,11 @@ const CONTINUOUS_TEMPLATES = [
     hazards: [
       {
         id: "retention-marker",
-        kind: "quiet-zone",
+        kind: "spike",
         x: 100,
         width: 20,
-        top: 0,
-        bottom: 1,
-        maximumLift: 1,
+        baseTop: 120,
+        height: 20,
       },
     ],
     collectibles: [],

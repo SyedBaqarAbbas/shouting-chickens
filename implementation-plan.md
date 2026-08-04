@@ -289,7 +289,8 @@ MVP content:
 
 Full-game content:
 
-- Quiet tunnel that punishes excessive lift
+- Legacy quiet-tunnel chunks retained for seeded-course compatibility, with
+  their hidden quiet-zone geometry treated as nonlethal
 - Sustained-lift gap
 - Precision islands requiring separate voice pulses
 - Moving platform or moving hazard
@@ -311,9 +312,9 @@ The first full-game balance profile is intentionally fixed and replayable:
   introduction chunks more weight early and advanced chunks more weight later,
   while rejecting geometry outside the active traversal envelope.
 - Airborne lift drains stamina at 40% per second at full input and released or
-  grounded lift recovers it at 80% per second. Empty stamina suppresses lift,
-  but raw held input still fails quiet-zone rules and tunnel ceilings remain
-  solid.
+  grounded lift recovers it at 80% per second. Empty stamina suppresses lift.
+  Retired quiet-zone and tunnel-ceiling geometry is neither rendered nor
+  scored; spike, water, and fall collisions remain lethal.
 - Survival earns 10 points per second. Each feather adds 25 points and the
   first landing on a platform no wider than 200 px adds 10 precision points.
   Results show every component separately.

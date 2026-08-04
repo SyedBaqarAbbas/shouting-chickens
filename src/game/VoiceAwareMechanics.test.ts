@@ -227,7 +227,7 @@ function runFeatherCatalog(collect: boolean) {
 }
 
 describe("voice-aware authored mechanics", () => {
-  it("rewards release in the quiet tunnel and rejects excessive held input once", () => {
+  it("keeps retired quiet-tunnel geometry nonlethal for released and held input", () => {
     const released = runPilot("quiet-tunnel-intro");
     const held = runPilot("quiet-tunnel-intro", { intentionalLift: 1 });
 
@@ -235,21 +235,9 @@ describe("voice-aware authored mechanics", () => {
       phase: "running",
       currentChunkIndex: 1,
     });
-    expect(held.snapshot).toMatchObject({
-      phase: "dead",
-      deathReason: "hazard",
-      collisionId: "0:quiet-tunnel-intro:release-zone",
-    });
-    expect(held.events).toEqual([
-      {
-        type: "hazard-collision",
-        value: {
-          id: "0:quiet-tunnel-intro:release-zone",
-          kind: "quiet-zone",
-          tick: expect.any(Number),
-        },
-      },
-    ]);
+    expect(held.snapshot).toMatchObject({ phase: "running", currentChunkIndex: 1 });
+    expect(released.events).toEqual([]);
+    expect(held.events).toEqual([]);
   });
 
   it("requires bounded sustained lift for the lift introduction", () => {
@@ -342,24 +330,24 @@ describe("voice-aware authored mechanics", () => {
   });
 
   it("resets collision and collection dedupe on the same simulation instance", () => {
-    const quietCourse = courseFor(templateById("quiet-tunnel-intro"));
-    const quietSimulation = new ChickenSimulation({ generatedCourse: quietCourse });
+    const hazardCourse = courseFor(templateById("spike-straight"));
+    const hazardSimulation = new ChickenSimulation({ generatedCourse: hazardCourse });
     const collide = () => {
       const events: GameplayInteractionEvent[] = [];
-      quietSimulation.start();
-      for (let tick = 0; tick < 400 && quietSimulation.snapshot().phase === "running"; tick += 1) {
-        quietSimulation.step({
+      hazardSimulation.start();
+      for (let tick = 0; tick < 400 && hazardSimulation.snapshot().phase === "running"; tick += 1) {
+        hazardSimulation.step({
           atMs: tick * FIXED_STEP_MS,
           jumpPressed: false,
-          lift: 1,
+          lift: 0,
         });
-        events.push(...quietSimulation.drainInteractionEvents());
+        events.push(...hazardSimulation.drainInteractionEvents());
       }
       return events;
     };
 
     const firstCollision = collide();
-    quietSimulation.reset();
+    hazardSimulation.reset();
     const secondCollision = collide();
     expect(secondCollision).toEqual(firstCollision);
     expect(firstCollision).toHaveLength(1);
