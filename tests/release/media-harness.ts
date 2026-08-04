@@ -13,6 +13,7 @@ export type SyntheticMediaSnapshot = {
   readonly microphoneMode: "allow" | "deny" | "unavailable";
   readonly microphoneRequests: number;
   readonly microphoneStops: number;
+  readonly retainedCanvasesCount: number;
   readonly workletUrls: readonly string[];
 };
 
@@ -30,6 +31,7 @@ export async function installSyntheticMedia(page: Page, options: SyntheticMediaO
       audioResumeUserActivation: boolean[];
       visibility: DocumentVisibilityState;
       workletUrls: string[];
+      retainedCanvasesCount: number;
       setDbfs(value: number): void;
       loseCamera(): void;
       loseMicrophone(): void;
@@ -39,6 +41,7 @@ export async function installSyntheticMedia(page: Page, options: SyntheticMediaO
 
     let loseCameraImpl = () => {};
     let loseMicrophoneImpl = () => {};
+    const retainedCanvases = new Set<HTMLCanvasElement>();
     const harness: Harness = {
       cameraMode: initialOptions.camera ?? "deny",
       cameraRequests: 0,
@@ -50,6 +53,9 @@ export async function installSyntheticMedia(page: Page, options: SyntheticMediaO
       audioResumeUserActivation: [],
       visibility: "visible",
       workletUrls: [],
+      get retainedCanvasesCount() {
+        return retainedCanvases.size;
+      },
       loseCamera() {
         loseCameraImpl();
       },
@@ -346,9 +352,11 @@ export async function installSyntheticMedia(page: Page, options: SyntheticMediaO
           context.beginPath();
           context.arc(210, 280, 120, 0, Math.PI * 2);
           context.fill();
+          retainedCanvases.add(canvas);
           const stream = canvas.captureStream(5);
           const track = stream.getVideoTracks()[0];
           if (!track) {
+            retainedCanvases.delete(canvas);
             throw new DOMException("Synthetic camera track unavailable", "NotReadableError");
           }
           const stop = track.stop.bind(track);
@@ -356,10 +364,14 @@ export async function installSyntheticMedia(page: Page, options: SyntheticMediaO
             if (track.readyState === "ended") {
               return;
             }
+            retainedCanvases.delete(canvas);
             harness.cameraStops += 1;
             stop();
             track.dispatchEvent(new Event("ended"));
           };
+          track.addEventListener("ended", () => {
+            retainedCanvases.delete(canvas);
+          });
           loseCameraImpl = () => track.stop();
           return stream;
         }
@@ -469,6 +481,7 @@ export async function syntheticMediaSnapshot(page: Page): Promise<SyntheticMedia
           microphoneMode: "allow" | "deny" | "unavailable";
           microphoneRequests: number;
           microphoneStops: number;
+          retainedCanvasesCount: number;
           workletUrls: string[];
         };
       }
@@ -484,6 +497,7 @@ export async function syntheticMediaSnapshot(page: Page): Promise<SyntheticMedia
       microphoneMode: harness.microphoneMode,
       microphoneRequests: harness.microphoneRequests,
       microphoneStops: harness.microphoneStops,
+      retainedCanvasesCount: harness.retainedCanvasesCount,
       workletUrls: harness.workletUrls,
     };
   });

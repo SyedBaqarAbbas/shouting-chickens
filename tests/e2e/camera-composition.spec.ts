@@ -6,6 +6,7 @@ type SyntheticCameraMode = "allow" | "deny" | "unavailable";
 
 interface CameraHarnessState {
   requests: MediaStreamConstraints[];
+  retainedCanvasesCount: number;
   stops: number;
 }
 
@@ -14,8 +15,12 @@ async function installSyntheticCamera(page: Page, mode: SyntheticCameraMode) {
     const harnessWindow = window as typeof window & {
       __cameraHarness?: CameraHarnessState;
     };
+    const retainedCanvases = new Set<HTMLCanvasElement>();
     const harness: CameraHarnessState = {
       requests: [],
+      get retainedCanvasesCount() {
+        return retainedCanvases.size;
+      },
       stops: 0,
     };
     harnessWindow.__cameraHarness = harness;
@@ -46,14 +51,23 @@ async function installSyntheticCamera(page: Page, mode: SyntheticCameraMode) {
         context.beginPath();
         context.arc(210, 280, 120, 0, Math.PI * 2);
         context.fill();
+        retainedCanvases.add(canvas);
 
         const stream = canvas.captureStream(5);
         const track = stream.getVideoTracks()[0];
         const stop = track.stop.bind(track);
         track.stop = () => {
+          if (track.readyState === "ended") {
+            return;
+          }
+          retainedCanvases.delete(canvas);
           harness.stops += 1;
           stop();
+          track.dispatchEvent(new Event("ended"));
         };
+        track.addEventListener("ended", () => {
+          retainedCanvases.delete(canvas);
+        });
         return stream;
       },
     });
@@ -68,7 +82,11 @@ async function cameraHarness(page: Page): Promise<CameraHarnessState> {
     if (!harnessWindow.__cameraHarness) {
       throw new Error("Synthetic camera harness was not installed");
     }
-    return harnessWindow.__cameraHarness;
+    return {
+      requests: harnessWindow.__cameraHarness.requests,
+      retainedCanvasesCount: harnessWindow.__cameraHarness.retainedCanvasesCount,
+      stops: harnessWindow.__cameraHarness.stops,
+    };
   });
 }
 
@@ -282,4 +300,34 @@ test("keeps a centered portrait letterbox on desktop", async ({ page }) => {
   expect(phoneBox!.height).toBeLessThanOrEqual(768);
   expect(phoneBox!.width / phoneBox!.height).toBeCloseTo(9 / 16, 2);
   expect(Math.abs(phoneBox!.x + phoneBox!.width / 2 - 720)).toBeLessThan(2);
+});
+
+test("synthetic camera stream stays live across repeated forced GC cycles until intentionally stopped", async ({
+  page,
+}) => {
+  await installSyntheticCamera(page, "allow");
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/");
+  await expectMountedGame(page);
+
+  await page.getByRole("button", { name: "Camera off · Enable" }).click();
+  await expect(page.locator("#camera-status")).toContainText("Camera on");
+  await expect(page.getByTestId("camera-video")).toBeVisible();
+  expect((await cameraHarness(page)).retainedCanvasesCount).toBe(1);
+
+  for (let cycle = 0; cycle < 30; cycle += 1) {
+    await page.requestGC();
+  }
+
+  await expect(page.locator("#camera-status")).toContainText("Camera on");
+  await expect(page.getByTestId("camera-video")).toBeVisible();
+  expect((await cameraHarness(page)).retainedCanvasesCount).toBe(1);
+
+  await page.getByRole("button", { name: "Camera on · Turn off" }).click();
+  await expect(page.locator("#camera-status")).toContainText("Camera stopped");
+  await expect(page.getByTestId("camera-video")).toHaveCount(0);
+  expect((await cameraHarness(page)).retainedCanvasesCount).toBe(0);
+
+  await page.requestGC();
+  expect((await cameraHarness(page)).retainedCanvasesCount).toBe(0);
 });
