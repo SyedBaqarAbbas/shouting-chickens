@@ -328,7 +328,7 @@ test("first run is keyboard reachable and fallback reaches pause, results, and r
   );
 
   await page.keyboard.press("Shift+Tab");
-  await expect(page.getByRole("button", { name: "Accessibility & settings" })).toBeFocused();
+  await expect(page.getByRole("button", { name: "Download score card image" })).toBeFocused();
   await page.keyboard.press("Tab");
   await expect(page.getByRole("button", { name: "Restart run" })).toBeFocused();
   await page.keyboard.press("Enter");

@@ -1059,12 +1059,16 @@ describe("GameExperience run lifecycle", () => {
 
     await user.keyboard(" ");
     expect(runtime.restart).not.toHaveBeenCalled();
-    await user.tab({ shift: true });
-    expect(screen.getByRole("button", { name: "Accessibility & settings" })).toHaveFocus();
     await user.tab();
     expect(screen.getByRole("button", { name: "Restart run" })).toHaveFocus();
     await user.tab();
     expect(screen.getByRole("button", { name: "Quit to ready screen" })).toHaveFocus();
+    await user.tab();
+    expect(screen.getByRole("button", { name: "Accessibility & settings" })).toHaveFocus();
+    await user.tab();
+    expect(screen.getByRole("button", { name: "Share score card image" })).toHaveFocus();
+    await user.tab();
+    expect(screen.getByRole("button", { name: "Download score card image" })).toHaveFocus();
 
     await user.click(screen.getByRole("button", { name: "Restart run" }));
     await waitFor(() => expect(runtime.resumeGameAudioFromGesture).toHaveBeenCalledOnce());

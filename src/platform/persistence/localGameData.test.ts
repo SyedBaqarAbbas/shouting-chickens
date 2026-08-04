@@ -99,6 +99,7 @@ describe("LocalGameDataStore", () => {
         copyVersion: CURRENT_COPY_VERSION,
         muted: true,
         reducedMotion: true,
+        replayConsent: DEFAULT_GAME_SETTINGS.replayConsent,
         screenShakeEnabled: DEFAULT_GAME_SETTINGS.screenShakeEnabled,
       },
       statistics: {

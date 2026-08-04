@@ -23,6 +23,7 @@ export type GameSettings = {
   readonly copyVersion: number;
   readonly muted: boolean;
   readonly reducedMotion: boolean;
+  readonly replayConsent: boolean;
   readonly screenShakeEnabled: boolean;
 };
 
@@ -51,6 +52,7 @@ export const DEFAULT_GAME_SETTINGS: Readonly<GameSettings> = Object.freeze({
   copyVersion: 0,
   muted: false,
   reducedMotion: false,
+  replayConsent: false,
   screenShakeEnabled: true,
 });
 
@@ -346,6 +348,7 @@ function migrateLocalData(value: unknown): LocalGameData | null {
       copyVersion: nonNegativeIntegerOr(settings.copyVersion, DEFAULT_GAME_SETTINGS.copyVersion),
       muted: booleanOr(settings.muted, DEFAULT_GAME_SETTINGS.muted),
       reducedMotion: booleanOr(settings.reducedMotion, DEFAULT_GAME_SETTINGS.reducedMotion),
+      replayConsent: booleanOr(settings.replayConsent, DEFAULT_GAME_SETTINGS.replayConsent),
       screenShakeEnabled: booleanOr(
         settings.screenShakeEnabled,
         DEFAULT_GAME_SETTINGS.screenShakeEnabled,
@@ -394,6 +397,7 @@ function sanitizeLocalGameData(value: LocalGameData): LocalGameData | null {
       copyVersion: value.settings.copyVersion,
       muted: value.settings.muted,
       reducedMotion: value.settings.reducedMotion,
+      replayConsent: value.settings.replayConsent,
       screenShakeEnabled: value.settings.screenShakeEnabled,
     },
     statistics: {
@@ -413,6 +417,7 @@ function isGameSettings(value: unknown): value is GameSettings {
     isNonNegativeInteger(value.copyVersion) &&
     typeof value.muted === "boolean" &&
     typeof value.reducedMotion === "boolean" &&
+    typeof value.replayConsent === "boolean" &&
     typeof value.screenShakeEnabled === "boolean"
   );
 }
