@@ -148,6 +148,7 @@ class ChickenWorldScene extends Phaser.Scene {
   private readonly warningViews: WarningView[] = [];
   private readonly effectParticles: EffectParticleView[] = [];
   private chicken!: Phaser.GameObjects.Sprite;
+  private continuousWater!: Phaser.GameObjects.TileSprite;
   private phaseShade!: Phaser.GameObjects.Rectangle;
   private phaseLabel!: Phaser.GameObjects.Text;
   private scoreLabel!: Phaser.GameObjects.Text;
@@ -258,22 +259,6 @@ class ChickenWorldScene extends Phaser.Scene {
 
   private createBackdrop() {
     this.add
-      .rectangle(
-        LOGICAL_GAME_WIDTH / 2,
-        LOGICAL_GAME_HEIGHT / 2,
-        LOGICAL_GAME_WIDTH,
-        LOGICAL_GAME_HEIGHT,
-        0x10233b,
-        0.8,
-      )
-      .setDepth(-10);
-
-    this.add.circle(72, 170, 88, 0xf7c84b, 0.13).setDepth(-9);
-    this.add.circle(366, 312, 132, 0x5eb8ff, 0.11).setDepth(-9);
-    this.add.ellipse(84, 524, 280, 220, 0x174a58, 0.32).setDepth(-8);
-    this.add.ellipse(360, 548, 330, 250, 0x173a56, 0.38).setDepth(-8);
-
-    this.add
       .text(LOGICAL_GAME_WIDTH / 2, 194, "TAP · SPACE · ↑", {
         color: "#fff4ce",
         fontFamily: "system-ui, sans-serif",
@@ -286,6 +271,18 @@ class ChickenWorldScene extends Phaser.Scene {
   }
 
   private createWorldPools() {
+    this.continuousWater = this.add
+      .tileSprite(
+        LOGICAL_GAME_WIDTH / 2,
+        LOGICAL_GAME_HEIGHT - 35,
+        LOGICAL_GAME_WIDTH * 2,
+        70,
+        GAME_ART_ATLAS_KEY,
+        "water",
+      )
+      .setOrigin(0.5, 0)
+      .setDepth(2);
+
     const capacities = this.requiredCourseSnapshot().poolCapacities;
 
     for (let index = 0; index < capacities.platforms; index += 1) {
@@ -598,6 +595,10 @@ class ChickenWorldScene extends Phaser.Scene {
   }
 
   private renderGeneratedWorld(snapshot: SimulationSnapshot, reducedMotion: boolean) {
+    this.continuousWater.setTilePosition(
+      reducedMotion ? 0 : snapshot.distance + snapshot.tick * 0.5,
+      0,
+    );
     const course = this.requiredCourseSnapshot();
     const distance = snapshot.distance;
     const collectedIds = new Set(snapshot.collectedCollectibleIds);
@@ -908,11 +909,15 @@ function createGeneratedFallbackAtlas(textures: Phaser.Textures.TextureManager) 
 
 function drawGeneratedFallbackFrame(context: CanvasRenderingContext2D, index: number) {
   const ink = "#10233b";
+  const white = "#ffffff";
+  const grey = "#cbd5e1";
+  const red = "#ff3b30";
+  const yellow = "#ffcc00";
   const cream = "#fff4ce";
-  const gold = "#f7c84b";
-  const coral = "#ff6b5e";
+  const gold = "#ffcc00";
+  const coral = "#ff3b30";
   const teal = "#41c7a4";
-  const sky = "#5eb8ff";
+  const sky = "#3b82f6";
 
   context.strokeStyle = ink;
   context.lineWidth = 3;
@@ -924,52 +929,55 @@ function drawGeneratedFallbackFrame(context: CanvasRenderingContext2D, index: nu
       context.rotate(0.28);
       context.translate(-40, -42);
     }
-    context.fillStyle = gold;
+    // Red comb
+    context.fillStyle = red;
     context.beginPath();
-    context.ellipse(40, 44, index === 3 ? 22 : 25, index === 3 ? 27 : 22, 0, 0, Math.PI * 2);
+    context.arc(37, 18, 6, Math.PI, 0);
     context.fill();
     context.stroke();
-    context.fillStyle = cream;
+    // Slimmer white body
+    context.fillStyle = white;
+    context.beginPath();
+    context.ellipse(40, 44, 14, index === 3 ? 24 : 20, 0, 0, Math.PI * 2);
+    context.fill();
+    context.stroke();
+    // Grey wing
+    context.fillStyle = grey;
     context.beginPath();
     if (index === 4) {
       context.moveTo(34, 45);
-      context.quadraticCurveTo(8, 31, 14, 9);
-      context.quadraticCurveTo(28, 33, 48, 35);
+      context.quadraticCurveTo(14, 31, 18, 14);
+      context.quadraticCurveTo(28, 33, 44, 35);
     } else if (index === 5) {
       context.moveTo(34, 41);
-      context.quadraticCurveTo(8, 48, 13, 69);
-      context.quadraticCurveTo(28, 50, 48, 49);
+      context.quadraticCurveTo(14, 48, 18, 65);
+      context.quadraticCurveTo(28, 50, 44, 49);
     } else {
-      context.ellipse(29, 47, 13, 10, -0.45, 0, Math.PI * 2);
+      context.ellipse(32, 46, 8, 10, -0.45, 0, Math.PI * 2);
     }
     context.fill();
     context.stroke();
-    context.fillStyle = teal;
-    context.fillRect(23, 58, 35, 8);
-    context.fillStyle = coral;
+    // Yellow beak
+    context.fillStyle = yellow;
     context.beginPath();
-    context.moveTo(61, 39);
-    context.lineTo(76, 45);
-    context.lineTo(61, 50);
+    context.moveTo(54, 32);
+    context.lineTo(67, 36);
+    context.lineTo(54, 41);
     context.closePath();
     context.fill();
     context.stroke();
-    context.fillStyle = coral;
-    context.beginPath();
-    context.arc(37, 18, 8, Math.PI, 0);
-    context.fill();
-    context.stroke();
+    // Eye
     if (index === 6) {
       context.beginPath();
-      context.moveTo(48, 31);
-      context.lineTo(56, 39);
-      context.moveTo(56, 31);
-      context.lineTo(48, 39);
+      context.moveTo(44, 30);
+      context.lineTo(50, 36);
+      context.moveTo(50, 30);
+      context.lineTo(44, 36);
       context.stroke();
     } else {
       context.fillStyle = ink;
       context.beginPath();
-      context.arc(52, 35, 3, 0, Math.PI * 2);
+      context.arc(47, 32, 3, 0, Math.PI * 2);
       context.fill();
     }
     context.restore();

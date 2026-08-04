@@ -278,9 +278,7 @@ textarea {
 .camera-vignette {
   position: absolute;
   inset: 0;
-  background:
-    linear-gradient(180deg, rgb(2 8 16 / 36%), transparent 28%, transparent 66%, rgb(2 8 16 / 58%)),
-    radial-gradient(circle at 50% 38%, transparent 22%, rgb(2 8 16 / 24%) 100%);
+  background: transparent;
   pointer-events: none;
 }
 
