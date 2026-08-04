@@ -23,6 +23,10 @@ describe("production Pages workflow policy", () => {
     ]) {
       expect(quality).toContain(gate);
     }
+    expect(quality).toContain("npm ci --no-audit --fund=false");
+    expect(quality.indexOf("Record release identity")).toBeLessThan(
+      quality.indexOf("Build and seal production artifact"),
+    );
     for (const removedGate of [
       "Validate physical-device evidence gate",
       "npm audit --audit-level=low",
@@ -44,7 +48,11 @@ describe("production Pages workflow policy", () => {
   it("keeps the recovery deploy separate from CI and verifies it after release", () => {
     expect(recoveryDeploy).toContain("workflow_dispatch:");
     expect(recoveryDeploy).toContain("ref: main");
+    expect(recoveryDeploy).toContain("npm ci --no-audit --fund=false");
     expect(recoveryDeploy).toContain("npm run build");
+    expect(recoveryDeploy.indexOf("Record release identity")).toBeLessThan(
+      recoveryDeploy.indexOf("Build and seal production artifact"),
+    );
     expect(recoveryDeploy).toContain("actions/deploy-pages@");
     expect(recoveryDeploy).toContain("npm run test:postdeploy");
     expect(recoveryDeploy).not.toContain("Validate physical-device evidence gate");
