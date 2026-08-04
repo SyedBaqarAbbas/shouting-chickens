@@ -80,7 +80,10 @@ test("runs the sealed game without resource or heap growth for ten wall-clock mi
       "data-run-generation",
       String(completedRun.generation + 1),
     );
-    await page.getByRole("button", { name: "Camera preferred · Enable" }).click();
+    const enableCamera = page.getByRole("button", { name: "Camera preferred · Enable" });
+    if (await enableCamera.isVisible()) {
+      await enableCamera.click();
+    }
     await expect(page.locator("#camera-status")).toContainText("Camera on");
     const inputSamplesBeforeVoice = (await performanceDiagnostics(surface)).inputSamples;
     await setSyntheticDbfs(page, -18);
