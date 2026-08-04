@@ -2,7 +2,6 @@
   <title>Original Shouting Chickens vector game atlas</title>
   <desc>Sixteen hand-authored frames for the bird, course, interface, and effects.</desc>
   <defs>
-    <!-- Shared Style Colors -->
     <style>
       .body { fill: #ffffff; }
       .accent { fill: #e5e5eb; }
@@ -21,150 +20,151 @@
 
     <!-- Standard Leg Reusable Component -->
     <g id="leg">
-      <rect x="-2.5" y="0" width="5" height="12" class="beak-legs" />
-      <rect x="-2.5" y="8" width="10" height="4" class="beak-legs" />
+      <rect x="-3" y="0" width="6" height="15" class="beak-legs" />
+      <rect x="-3" y="11" width="12" height="4" class="beak-legs" />
     </g>
 
     <!-- Core Chicken Base -->
     <g id="core_chicken">
-      <rect x="25" y="30" width="45" height="55" rx="16" class="body" />
-      <path class="comb" d="M 38 32 C 35 20 48 18 52 30 Z" />
-      <polygon points="68,45 88,50 68,55" class="beak-legs" />
-      <circle cx="58" cy="45" r="4.5" class="eye" />
-      <path class="accent" d="M 25 70 C 10 70 5 50 15 48 C 15 62 20 65 25 65 Z" />
+      <rect x="15" y="18" width="48" height="52" rx="18" class="body" />
+      <path class="comb" d="M 28 20 C 24 6 40 4 44 18 Z" />
+      <polygon points="62,34 80,40 62,46" class="beak-legs" />
+      <circle cx="52" cy="34" r="5" class="eye" />
+      <path class="accent" d="M 15 58 C 2 58 -2 38 8 36 C 8 50 12 53 15 53 Z" />
     </g>
 
     <!-- Wing Variations -->
-    <path id="wing_down" class="accent" d="M 30 52 C 45 52 45 68 30 68 Z" />
-    <path id="wing_up" class="accent" d="M 35 55 C 35 40 20 30 20 45 Z" />
+    <path id="wing_down" class="accent" d="M 20 42 C 38 42 38 60 20 60 Z" />
+    <path id="wing_up" class="accent" d="M 25 45 C 25 28 10 16 10 32 Z" />
   </defs>
 
   <!-- 0: chicken-idle (Standing) -->
-  <g transform="translate(0) scale(0.8)">
+  <g transform="translate(0)">
     <use href="#core_chicken" />
-    <use href="#leg" x="35" y="80" />
-    <use href="#leg" x="55" y="80" />
+    <use href="#leg" x="28" y="68" />
+    <use href="#leg" x="48" y="68" />
     <use href="#wing_down" />
   </g>
 
   <!-- 1: chicken-run-a (Walking 1) -->
-  <g transform="translate(80) scale(0.8)">
+  <g transform="translate(80)">
     <use href="#core_chicken" />
-    <use href="#leg" x="35" y="80" transform="rotate(20 35 80)" />
-    <use href="#leg" x="55" y="80" transform="rotate(-20 55 80)" />
+    <use href="#leg" x="28" y="68" transform="rotate(20 28 68)" />
+    <use href="#leg" x="48" y="68" transform="rotate(-20 48 68)" />
     <use href="#wing_down" />
   </g>
 
   <!-- 2: chicken-run-b (Walking 2) -->
-  <g transform="translate(160) scale(0.8)">
+  <g transform="translate(160)">
     <use href="#core_chicken" />
-    <use href="#leg" x="45" y="80" />
-    <use href="#leg" x="55" y="75" transform="rotate(-45 55 75)" />
+    <use href="#leg" x="38" y="68" />
+    <use href="#leg" x="48" y="63" transform="rotate(-45 48 63)" />
     <use href="#wing_down" />
   </g>
 
   <!-- 3: chicken-jump (Running) -->
-  <g transform="translate(240) scale(0.8)">
+  <g transform="translate(240)">
     <use href="#core_chicken" />
-    <use href="#leg" x="30" y="80" transform="rotate(40 30 80)" />
-    <use href="#leg" x="60" y="80" transform="rotate(-30 60 80)" />
-    <path class="accent" d="M 40 60 C 20 60 10 45 25 50 Z" />
+    <use href="#leg" x="24" y="68" transform="rotate(40 24 68)" />
+    <use href="#leg" x="52" y="68" transform="rotate(-30 52 68)" />
+    <path class="accent" d="M 32 50 C 12 50 2 35 17 40 Z" />
   </g>
 
   <!-- 4: chicken-flap-a (Flapping) -->
-  <g transform="translate(320) scale(0.8)">
+  <g transform="translate(320)">
     <use href="#core_chicken" />
-    <use href="#leg" x="40" y="80" transform="rotate(20 40 80)" />
-    <use href="#leg" x="50" y="80" transform="rotate(-20 50 80)" />
+    <use href="#leg" x="32" y="68" transform="rotate(20 32 68)" />
+    <use href="#leg" x="44" y="68" transform="rotate(-20 44 68)" />
     <use href="#wing_up" />
   </g>
 
   <!-- 5: chicken-flap-b (Flapping Alt) -->
-  <g transform="translate(400) scale(0.8)">
+  <g transform="translate(400)">
     <use href="#core_chicken" />
-    <use href="#leg" x="35" y="80" transform="rotate(-15 35 80)" />
-    <use href="#leg" x="55" y="80" transform="rotate(25 55 80)" />
+    <use href="#leg" x="28" y="68" transform="rotate(-15 28 68)" />
+    <use href="#leg" x="48" y="68" transform="rotate(25 48 68)" />
     <use href="#wing_up" />
   </g>
 
   <!-- 6: chicken-death (Dead / Squished) -->
-  <g transform="translate(480) scale(0.8)">
-    <g transform="translate(50, 60) rotate(-90) translate(-50, -50)">
+  <g transform="translate(480)">
+    <g transform="translate(40, 48) rotate(-90) translate(-40, -40)">
       <use href="#core_chicken" />
-      <use href="#leg" x="35" y="80" />
-      <use href="#leg" x="55" y="80" />
+      <use href="#leg" x="28" y="68" />
+      <use href="#leg" x="48" y="68" />
       <use href="#wing_down" />
-      <circle cx="58" cy="45" r="5.5" class="body" />
-      <path d="M 54 41 L 62 49 M 62 41 L 54 49" stroke="#111111" stroke-width="2.5" stroke-linecap="round"/>
+      <circle cx="52" cy="34" r="6" class="body" />
+      <path d="M 47 29 L 57 39 M 57 29 L 47 39" stroke="#111111" stroke-width="3" stroke-linecap="round"/>
     </g>
   </g>
 
   <!-- 7: feather -->
-  <g transform="translate(560) scale(0.8)">
-    <path d="M 25 80 Q 10 50 40 20 Q 70 20 75 25 Q 75 55 45 85 Z" class="accent" />
-    <path d="M 20 85 L 70 25" stroke="#9ca3af" stroke-width="3" stroke-linecap="round"/>
-    <path d="M 40 60 L 50 70 M 50 48 L 65 60 M 35 45 L 45 55" stroke="#9ca3af" stroke-width="2" stroke-linecap="round"/>
-    <polygon points="75,70 78,78 86,81 78,84 75,92 72,84 64,81 72,78" class="beak-legs" />
+  <g transform="translate(560)">
+    <path d="M 15 72 Q 0 40 32 10 Q 64 10 70 15 Q 70 48 38 78 Z" class="accent" />
+    <path d="M 10 78 L 65 20" stroke="#9ca3af" stroke-width="3" stroke-linecap="round"/>
+    <path d="M 32 54 L 42 64 M 42 42 L 58 54 M 26 38 L 38 48" stroke="#9ca3af" stroke-width="2" stroke-linecap="round"/>
+    <polygon points="68,58 71,66 79,69 71,72 68,80 65,72 57,69 65,66" class="beak-legs" />
   </g>
 
   <!-- 8: spike (Mountains) -->
-  <g transform="translate(640) scale(0.8)">
-    <polygon points="10,90 40,30 70,90" class="mountain"/>
-    <polygon points="45,90 70,45 95,90" class="mountain-light"/>
-    <polygon points="40,30 30,50 50,50" class="body"/>
-    <polygon points="70,45 60,65 80,65" class="body"/>
+  <g transform="translate(640)">
+    <polygon points="2,80 32,16 62,80" class="mountain"/>
+    <polygon points="38,80 60,32 80,80" class="mountain-light"/>
+    <polygon points="32,16 22,38 42,38" class="body"/>
+    <polygon points="60,32 50,52 70,52" class="body"/>
   </g>
 
   <!-- 9: moving-hazard (Fire / Spikes) -->
-  <g transform="translate(720) scale(0.8)">
-    <polygon points="10,90 25,40 40,75 55,30 70,80 85,45 95,90" class="comb"/>
+  <g transform="translate(720)">
+    <polygon points="4,80 18,24 32,60 46,12 60,64 74,28 78,80" class="comb"/>
   </g>
 
   <!-- 10: microphone -->
-  <g transform="translate(800) scale(0.8)">
-    <rect x="40" y="25" width="20" height="35" rx="10" class="dark"/>
-    <line x1="42" y1="35" x2="58" y2="35" stroke="#ffffff" stroke-width="2"/>
-    <line x1="42" y1="45" x2="58" y2="45" stroke="#ffffff" stroke-width="2"/>
-    <path d="M 32 45 A 18 18 0 0 0 68 45" fill="none" stroke="#333333" stroke-width="4"/>
-    <rect x="48" y="63" width="4" height="20" class="dark"/>
-    <rect x="35" y="83" width="30" height="4" rx="2" class="dark"/>
+  <g transform="translate(800)">
+    <rect x="28" y="10" width="24" height="42" rx="12" class="dark"/>
+    <line x1="30" y1="22" x2="50" y2="22" stroke="#ffffff" stroke-width="3"/>
+    <line x1="30" y1="34" x2="50" y2="34" stroke="#ffffff" stroke-width="3"/>
+    <path d="M 18 34 A 22 22 0 0 0 62 34" fill="none" stroke="#333333" stroke-width="4"/>
+    <rect x="38" y="56" width="4" height="18" class="dark"/>
+    <rect x="24" y="74" width="32" height="4" rx="2" class="dark"/>
   </g>
 
   <!-- 11: warning -->
-  <g transform="translate(880) scale(0.8)">
-    <polygon points="50,20 90,80 10,80" class="beak-legs"/>
-    <rect x="46" y="40" width="8" height="20" class="dark" rx="2"/>
-    <circle cx="50" cy="70" r="4" class="dark"/>
+  <g transform="translate(880)">
+    <polygon points="40,6 76,74 4,74" class="beak-legs"/>
+    <rect x="36" y="28" width="8" height="24" class="dark" rx="2"/>
+    <circle cx="40" cy="62" r="4.5" class="dark"/>
   </g>
 
   <!-- 12: grass -->
-  <g transform="translate(960) scale(0.8)">
-    <rect x="10" y="45" width="80" height="45" class="beak-legs"/>
-    <polygon points="10,45 20,30 30,45 40,30 50,45 60,30 70,45 80,30 90,45" class="grass"/>
-    <rect x="25" y="60" width="15" height="5" fill="#eab308"/>
-    <rect x="60" y="75" width="15" height="5" fill="#eab308"/>
+  <g transform="translate(960)">
+    <rect x="0" y="32" width="80" height="48" class="beak-legs"/>
+    <polygon points="0,32 10,16 20,32 30,16 40,32 50,16 60,32 70,16 80,32" class="grass"/>
+    <rect x="12" y="48" width="20" height="6" fill="#eab308"/>
+    <rect x="48" y="64" width="20" height="6" fill="#eab308"/>
   </g>
 
   <!-- 13: platform -->
-  <g transform="translate(1040) scale(0.8)">
-    <rect x="10" y="10" width="80" height="80" class="dirt"/>
-    <line x1="10" y1="40" x2="90" y2="40" stroke="#70351b" stroke-width="3"/>
-    <line x1="10" y1="70" x2="90" y2="70" stroke="#70351b" stroke-width="3"/>
-    <line x1="50" y1="10" x2="50" y2="40" stroke="#70351b" stroke-width="3"/>
-    <line x1="30" y1="40" x2="30" y2="70" stroke="#70351b" stroke-width="3"/>
-    <line x1="70" y1="70" x2="70" y2="90" stroke="#70351b" stroke-width="3"/>
+  <g transform="translate(1040)">
+    <rect x="0" y="0" width="80" height="80" class="dirt"/>
+    <line x1="0" y1="26" x2="80" y2="26" stroke="#70351b" stroke-width="4"/>
+    <line x1="0" y1="54" x2="80" y2="54" stroke="#70351b" stroke-width="4"/>
+    <line x1="40" y1="0" x2="40" y2="26" stroke="#70351b" stroke-width="4"/>
+    <line x1="20" y1="26" x2="20" y2="54" stroke="#70351b" stroke-width="4"/>
+    <line x1="60" y1="26" x2="60" y2="54" stroke="#70351b" stroke-width="4"/>
+    <line x1="40" y1="54" x2="40" y2="80" stroke="#70351b" stroke-width="4"/>
   </g>
 
   <!-- 14: water -->
-  <g transform="translate(1120) scale(0.8)">
-    <rect x="0" y="40" width="100" height="60" class="water-light"/>
-    <path d="M 0 40 Q 12.5 25 25 40 T 50 40 T 75 40 T 100 40 L 100 50 L 0 50 Z" class="body"/>
-    <rect x="0" y="50" width="100" height="50" class="water-dark"/>
+  <g transform="translate(1120)">
+    <rect x="0" y="16" width="80" height="64" class="water-dark"/>
+    <path d="M 0 16 Q 10 4 20 16 T 40 16 T 60 16 T 80 16 L 80 80 L 0 80 Z" class="water-light"/>
+    <path d="M 0 16 Q 10 4 20 16 T 40 16 T 60 16 T 80 16 L 80 24 Q 70 12 60 24 T 40 24 T 20 24 T 0 24 Z" class="body"/>
   </g>
 
   <!-- 15: spark -->
-  <g transform="translate(1200) scale(0.8)">
-    <polygon points="50,10 60,38 88,38 65,55 75,85 50,68 25,85 35,55 12,38 40,38" class="beak-legs"/>
-    <circle cx="50" cy="50" r="10" class="comb"/>
+  <g transform="translate(1200)">
+    <polygon points="40,4 48,28 74,28 53,44 61,70 40,54 19,70 27,44 6,28 32,28" class="beak-legs"/>
+    <circle cx="40" cy="40" r="9" class="comb"/>
   </g>
 </svg>

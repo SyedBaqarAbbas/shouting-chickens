@@ -274,9 +274,9 @@ class ChickenWorldScene extends Phaser.Scene {
     this.continuousWater = this.add
       .tileSprite(
         LOGICAL_GAME_WIDTH / 2,
-        LOGICAL_GAME_HEIGHT - 35,
+        LOGICAL_GAME_HEIGHT - 90,
         LOGICAL_GAME_WIDTH * 2,
-        70,
+        120,
         GAME_ART_ATLAS_KEY,
         "water",
       )
@@ -666,20 +666,10 @@ class ChickenWorldScene extends Phaser.Scene {
         view.quietZone.setVisible(false);
         view.quietGlyph.setVisible(false);
       } else if (hazard.kind === "quiet-zone") {
+        view.spike.setVisible(false);
         view.water.setVisible(false);
         view.quietZone.setVisible(false);
-        const centerX = hazard.x - distance + hazard.width / 2;
-        view.spike
-          .setFrame("spike")
-          .setPosition(centerX, hazard.top)
-          .setDisplaySize(hazard.width, 24)
-          .setAngle(180)
-          .setVisible(true);
-
-        view.quietGlyph
-          .setPosition(centerX, hazard.top + 32)
-          .setText("🤫 SHH...")
-          .setVisible(true);
+        view.quietGlyph.setVisible(false);
       }
     }
 
