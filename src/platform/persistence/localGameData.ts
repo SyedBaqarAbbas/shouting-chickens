@@ -47,7 +47,7 @@ export type LocalDataReadResult = {
 };
 
 export const DEFAULT_GAME_SETTINGS: Readonly<GameSettings> = Object.freeze({
-  cameraEnabled: false,
+  cameraEnabled: true,
   controlPreference: "keyboard-touch",
   copyVersion: 0,
   muted: false,

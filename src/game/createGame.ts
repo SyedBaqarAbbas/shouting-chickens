@@ -315,20 +315,20 @@ class ChickenWorldScene extends Phaser.Scene {
         .setVisible(false);
 
       const quietZoneView = this.add
-        .rectangle(0, 0, 1, 1, 0x10233b, 0.82)
+        .rectangle(0, 0, 1, 1, 0x34d399, 0.08)
         .setOrigin(0.5, 0)
-        .setStrokeStyle(3, 0xf7c84b, 0.96)
+        .setStrokeStyle(1.5, 0x34d399, 0.5)
         .setDepth(5)
         .setVisible(false);
 
       const quietGlyph = this.add
-        .text(0, 0, "RELEASE\n•••", {
+        .text(0, 0, "🤫 QUIET", {
           align: "center",
-          color: "#fff4ce",
+          color: "#34d399",
           fontFamily: "system-ui, sans-serif",
           fontSize: "11px",
           fontStyle: "700",
-          letterSpacing: 1,
+          letterSpacing: 1.2,
         })
         .setOrigin(0.5)
         .setDepth(6)
@@ -708,25 +708,11 @@ class ChickenWorldScene extends Phaser.Scene {
 
     for (let index = 0; index < this.warningViews.length; index += 1) {
       const view = this.warningViews[index];
-      const warning = course.warnings[index];
-
-      if (!view) {
-        continue;
-      }
-      if (!warning) {
+      if (view) {
         view.panel.setVisible(false);
         view.icon.setVisible(false);
         view.label.setVisible(false);
-        continue;
       }
-
-      const x = warning.x - distance;
-      view.panel.setPosition(x, warning.y).setVisible(true);
-      view.icon.setPosition(x - 83, warning.y).setVisible(true);
-      view.label
-        .setPosition(x - 63, warning.y)
-        .setText(`${warning.symbol} ${warning.text}`)
-        .setVisible(true);
     }
   }
 

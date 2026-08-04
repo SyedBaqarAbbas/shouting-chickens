@@ -301,7 +301,7 @@ test("mounts the exact weighted safe-introduction course and resets its warnings
   expect(initial.warnings).toContain("HOLD LIFT");
   expect(initial.warnings).toContain("PULSE");
   expect(initial.warningCount).toBe(4);
-  expect(initial.renderedWarnings).toBe(4);
+  expect(initial.renderedWarnings).toBe(0);
   expect(initial.renderedQuietZones).toBeGreaterThanOrEqual(1);
   expect(initial.renderedCollectibles).toBeGreaterThanOrEqual(1);
 

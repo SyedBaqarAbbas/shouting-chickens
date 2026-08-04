@@ -1259,6 +1259,7 @@ describe("GameExperience local settings and statistics", () => {
     await user.selectOptions(inputPreference, "voice");
     await user.selectOptions(inputPreference, "keyboard-touch");
     await user.click(screen.getByRole("checkbox", { name: "Prefer camera composition" }));
+    await user.click(screen.getByRole("checkbox", { name: "Prefer camera composition" }));
     await user.click(screen.getByRole("checkbox", { name: "Mute game" }));
     await user.click(screen.getByRole("checkbox", { name: "Reduce motion" }));
     await user.click(screen.getByRole("checkbox", { name: "Screen shake" }));
