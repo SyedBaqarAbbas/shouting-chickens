@@ -1,162 +1,148 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1280" height="80" viewBox="0 0 1280 80">
   <title>Original Shouting Chickens vector game atlas</title>
-  <desc>Sixteen hand-authored frames for the bird, course, interface, and effects.</desc>
+  <desc>Sixteen hand-authored frames for the bird, course, interface, and effects matching reference atlas screenshot.</desc>
   <defs>
     <style>
-      .ink{stroke:#10233b;stroke-width:3;stroke-linecap:round;stroke-linejoin:round}
-      .cream{fill:#e2e8f0}.gold{fill:#ffcc00}.coral{fill:#ff3b30}.teal{fill:#41c7a4}
-      .sky{fill:#3b82f6}.navy{fill:#10233b}.white{fill:#ffffff}.grey{fill:#cbd5e1}
+      .ink{stroke:#10233b;stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round}
+      .white{fill:#ffffff}.navy{fill:#10233b}.red{fill:#ff2d2d}.gold{fill:#ffc107}
+      .grey{fill:#e2e4f0}.cyan{fill:#06b6d4}.brick{fill:#78350f}.blue{fill:#2563eb}
     </style>
   </defs>
 
-  <!-- chicken idle -->
+  <!-- 0: chicken-idle -->
   <g transform="translate(0)">
-    <path class="coral ink" d="M33 16c-3-6 4-9 8-4 3-6 9-4 7 4z"/>
-    <path class="white ink" d="M26 36c0-12 28-12 28 0v18c0 8-28 8-28 0z"/>
-    <path class="grey ink" d="M26 38c0-8 12-8 12 6c0 8-12 8-12-2z"/>
-    <circle class="navy" cx="47" cy="32" r="3"/>
-    <circle class="white" cx="48" cy="31" r="1"/>
-    <path class="gold ink" d="m54 32 13 4-13 5z"/>
-    <path class="ink" fill="none" stroke="#ffcc00" stroke-width="4" d="M34 60v12m14-12v12"/>
-    <path class="ink" fill="none" stroke="#ffcc00" stroke-width="4" d="M29 72h10m4 0h10"/>
+    <path class="red" d="M36 12c-3-6 3-10 7-5 3-5 9-3 7 5z"/>
+    <path class="grey" d="M22 36c-8 6-10 18-4 26 6 6 16 4 20-4z"/>
+    <path class="white ink" d="M26 32c0-12 26-12 26 0v22c0 8-26 8-26 0z"/>
+    <path class="grey ink" stroke-width="2" d="M26 36c0-6 10-6 10 4c0 6-10 6-10-4z"/>
+    <circle class="navy" cx="47" cy="30" r="3"/>
+    <path class="gold ink" stroke-width="2" d="m52 30 14 4-14 5z"/>
+    <path fill="none" stroke="#ffc107" stroke-width="4" stroke-linecap="round" d="M34 54v18m12-18v18M30 72h8m8 0h8"/>
   </g>
 
-  <!-- chicken run A -->
+  <!-- 1: chicken-run-a -->
   <g transform="translate(80)">
-    <path class="coral ink" d="M33 16c-3-6 4-9 8-4 3-6 9-4 7 4z"/>
-    <path class="white ink" d="M26 36c0-12 28-12 28 0v18c0 8-28 8-28 0z" transform="rotate(4 40 45)"/>
-    <path class="grey ink" d="M26 38c0-8 12-8 12 6c0 8-12 8-12-2z"/>
-    <circle class="navy" cx="47" cy="32" r="3"/>
-    <circle class="white" cx="48" cy="31" r="1"/>
-    <path class="gold ink" d="m54 32 13 4-13 5z"/>
-    <path class="ink" fill="none" stroke="#ffcc00" stroke-width="4" d="m32 58-6 13m18-13 8 10"/>
-    <path class="ink" fill="none" stroke="#ffcc00" stroke-width="4" d="M20 71h11m12 0h10"/>
+    <path class="red" d="M36 12c-3-6 3-10 7-5 3-5 9-3 7 5z"/>
+    <path class="grey" d="M22 36c-8 6-10 18-4 26 6 6 16 4 20-4z"/>
+    <path class="white ink" d="M26 32c0-12 26-12 26 0v22c0 8-26 8-26 0z"/>
+    <path class="grey ink" stroke-width="2" d="M26 36c0-6 10-6 10 4c0 6-10 6-10-4z"/>
+    <circle class="navy" cx="47" cy="30" r="3"/>
+    <path class="gold ink" stroke-width="2" d="m52 30 14 4-14 5z"/>
+    <path fill="none" stroke="#ffc107" stroke-width="4" stroke-linecap="round" d="m32 54-8 16m20-16 10 12M20 70h8m18 0h8"/>
   </g>
 
-  <!-- chicken run B -->
+  <!-- 2: chicken-run-b -->
   <g transform="translate(160)">
-    <path class="coral ink" d="M33 16c-3-6 4-9 8-4 3-6 9-4 7 4z"/>
-    <path class="white ink" d="M26 36c0-12 28-12 28 0v18c0 8-28 8-28 0z" transform="rotate(-4 40 45)"/>
-    <path class="grey ink" d="M26 38c0-8 12-8 12 6c0 8-12 8-12-2z"/>
-    <circle class="navy" cx="47" cy="32" r="3"/>
-    <circle class="white" cx="48" cy="31" r="1"/>
-    <path class="gold ink" d="m54 32 13 4-13 5z"/>
-    <path class="ink" fill="none" stroke="#ffcc00" stroke-width="4" d="m35 58 7 12m7-12-6 12"/>
-    <path class="ink" fill="none" stroke="#ffcc00" stroke-width="4" d="M36 71h10m1 0h10"/>
+    <path class="red" d="M36 12c-3-6 3-10 7-5 3-5 9-3 7 5z"/>
+    <path class="grey" d="M22 36c-8 6-10 18-4 26 6 6 16 4 20-4z"/>
+    <path class="white ink" d="M26 32c0-12 26-12 26 0v22c0 8-26 8-26 0z"/>
+    <path class="grey ink" stroke-width="2" d="M26 36c0-6 10-6 10 4c0 6-10 6-10-4z"/>
+    <circle class="navy" cx="47" cy="30" r="3"/>
+    <path class="gold ink" stroke-width="2" d="m52 30 14 4-14 5z"/>
+    <path fill="none" stroke="#ffc107" stroke-width="4" stroke-linecap="round" d="m34 54 8 16m10-16-10 16M38 70h8m-18 0h8"/>
   </g>
 
-  <!-- chicken jump -->
+  <!-- 3: chicken-jump -->
   <g transform="translate(240)">
-    <path class="coral ink" d="M33 12c-3-6 4-9 8-4 3-6 9-4 7 4z"/>
-    <path class="white ink" d="M26 32c0-12 28-12 28 0v18c0 8-28 8-28 0z"/>
-    <path class="grey ink" d="M26 34c0-8 12-8 12 6c0 8-12 8-12-2z"/>
-    <circle class="navy" cx="47" cy="28" r="3"/>
-    <circle class="white" cx="48" cy="27" r="1"/>
-    <path class="gold ink" d="m54 28 13 4-13 5z"/>
-    <path class="ink" fill="none" stroke="#ffcc00" stroke-width="4" d="m32 54-5 8 8 2m15-10 5 8-8 2"/>
+    <path class="red" d="M36 12c-3-6 3-10 7-5 3-5 9-3 7 5z"/>
+    <path class="grey" d="M22 36c-8 6-10 18-4 26 6 6 16 4 20-4z"/>
+    <path class="white ink" d="M26 32c0-12 26-12 26 0v22c0 8-26 8-26 0z"/>
+    <path class="grey ink" stroke-width="2" d="M26 34c-12-8-14-22-4-26 8 8 12 18 16 22z"/>
+    <circle class="navy" cx="47" cy="30" r="3"/>
+    <path class="gold ink" stroke-width="2" d="m52 30 14 4-14 5z"/>
+    <path fill="none" stroke="#ffc107" stroke-width="4" stroke-linecap="round" d="M34 54v16m12-16v16M30 70h8m8 0h8"/>
   </g>
 
-  <!-- chicken flap A -->
+  <!-- 4: chicken-flap-a -->
   <g transform="translate(320)">
-    <path class="coral ink" d="M33 16c-3-6 4-9 8-4 3-6 9-4 7 4z"/>
-    <path class="white ink" d="M26 36c0-12 28-12 28 0v18c0 8-28 8-28 0z"/>
-    <path class="grey ink" d="M26 34c-12-6-16-16-8-20 8 10 16 14 20 16z"/>
-    <circle class="navy" cx="47" cy="32" r="3"/>
-    <circle class="white" cx="48" cy="31" r="1"/>
-    <path class="gold ink" d="m54 32 13 4-13 5z"/>
-    <path class="ink" fill="none" stroke="#ffcc00" stroke-width="4" d="M34 60v12m14-12v12"/>
-    <path class="ink" fill="none" stroke="#ffcc00" stroke-width="4" d="M29 72h10m4 0h10"/>
+    <g transform="rotate(35 40 45)">
+      <path class="red" d="M36 12c-3-6 3-10 7-5 3-5 9-3 7 5z"/>
+      <path class="white ink" d="M26 32c0-12 26-12 26 0v22c0 8-26 8-26 0z"/>
+      <path class="grey ink" stroke-width="2" d="M26 34c-12-8-14-22-4-26 8 8 12 18 16 22z"/>
+      <path stroke="#10233b" stroke-width="3" stroke-linecap="round" d="m44 27 6 6m0-6-6 6"/>
+      <path class="gold ink" stroke-width="2" d="m52 30 14 4-14 5z"/>
+      <path fill="none" stroke="#ffc107" stroke-width="4" stroke-linecap="round" d="m30 54-8 12m16-12 6 10"/>
+    </g>
   </g>
 
-  <!-- chicken flap B -->
+  <!-- 5: chicken-flap-b -->
   <g transform="translate(400)">
-    <path class="coral ink" d="M33 16c-3-6 4-9 8-4 3-6 9-4 7 4z"/>
-    <path class="white ink" d="M26 36c0-12 28-12 28 0v18c0 8-28 8-28 0z"/>
-    <path class="grey ink" d="M26 38c-12 6-16 16-8 20 8-10 16-14 20-16z"/>
-    <circle class="navy" cx="47" cy="32" r="3"/>
-    <circle class="white" cx="48" cy="31" r="1"/>
-    <path class="gold ink" d="m54 32 13 4-13 5z"/>
-    <path class="ink" fill="none" stroke="#ffcc00" stroke-width="4" d="M34 60v12m14-12v12"/>
-    <path class="ink" fill="none" stroke="#ffcc00" stroke-width="4" d="M29 72h10m4 0h10"/>
+    <g transform="rotate(85 40 45)">
+      <path class="red" d="M36 12c-3-6 3-10 7-5 3-5 9-3 7 5z"/>
+      <path class="white ink" d="M26 32c0-12 26-12 26 0v22c0 8-26 8-26 0z"/>
+      <path class="grey ink" stroke-width="2" d="M26 36c0-6 10-6 10 4c0 6-10 6-10-4z"/>
+      <path stroke="#10233b" stroke-width="3" stroke-linecap="round" d="m44 27 6 6m0-6-6 6"/>
+      <path class="gold ink" stroke-width="2" d="m52 30 14 4-14 5z"/>
+      <path fill="none" stroke="#ffc107" stroke-width="4" stroke-linecap="round" d="M34 54v14m12-14v14"/>
+    </g>
   </g>
 
-  <!-- chicken death -->
+  <!-- 6: chicken-death -->
   <g transform="translate(480)">
-    <path class="coral ink" d="M33 16c-3-6 4-9 8-4 3-6 9-4 7 4z"/>
-    <path class="white ink" d="M26 36c0-12 28-12 28 0v18c0 8-28 8-28 0z" transform="rotate(30 40 45)"/>
-    <path class="grey ink" d="M26 38c0-8 12-8 12 6c0 8-12 8-12-2z"/>
-    <path class="ink" fill="none" d="m44 30 6 6m0-6-6 6"/>
-    <path class="gold ink" d="m54 34 13 4-13 5z"/>
-    <path class="ink" fill="none" stroke="#ffcc00" stroke-width="4" d="m20 60-8 6m36-4 10 4"/>
+    <g transform="rotate(85 40 45)">
+      <path class="red" d="M36 12c-3-6 3-10 7-5 3-5 9-3 7 5z"/>
+      <path class="white ink" d="M26 32c0-12 26-12 26 0v22c0 8-26 8-26 0z"/>
+      <path class="grey ink" stroke-width="2" d="M26 36c0-6 10-6 10 4c0 6-10 6-10-4z"/>
+      <path stroke="#10233b" stroke-width="3" stroke-linecap="round" d="m44 27 6 6m0-6-6 6"/>
+      <path class="gold ink" stroke-width="2" d="m52 30 14 4-14 5z"/>
+      <path fill="none" stroke="#ffc107" stroke-width="4" stroke-linecap="round" d="M34 54v14m12-14v14"/>
+    </g>
   </g>
 
-  <!-- feather -->
+  <!-- 7: feather -->
   <g transform="translate(560)">
-    <path class="cream ink" d="M17 58C23 22 49 8 68 14c-1 26-19 48-48 49z"/>
-    <path class="teal ink" d="M27 50c8-16 20-25 35-31-7 14-18 25-35 31z"/>
-    <path class="ink" fill="none" d="M13 71c14-21 29-36 49-51M31 46l-11-5m20-6-8-8m18 0-4-9"/>
-    <path class="gold" d="m60 56 3 7 7 3-7 3-3 7-3-7-7-3 7-3z"/>
+    <path fill="#e5e7eb" stroke="#10233b" stroke-width="3" stroke-linejoin="round" d="M22 62C25 24 55 10 72 14c-4 28-26 50-50 48z"/>
+    <path fill="#0f766e" stroke="#10233b" stroke-width="2" d="M32 53c8-18 20-28 35-33-8 15-20 27-35 33z"/>
+    <path stroke="#10233b" stroke-width="3" stroke-linecap="round" fill="none" d="M16 68c16-22 32-38 52-52M34 46l-10-4m20-7-8-7m18 0-4-8"/>
+    <path class="gold" d="m66 54 3 6 6 3-6 3-3 6-3-6-6-3 6-3z"/>
   </g>
 
-  <!-- spike -->
+  <!-- 8: spike -->
   <g transform="translate(640)">
-    <path class="navy ink" d="M7 68 21 25l11 25 12-40 13 39 10-25 8 44z"/>
-    <path class="white" d="m21 50 3-10 4 10zm23-18 3-10 4 12zm13 22 3-12 4 12z"/>
-    <path class="coral ink" d="M7 68h68v8H7z"/>
+    <path fill="#6b7280" stroke="#10233b" stroke-width="3" stroke-linejoin="round" d="M6 72 32 14l20 32 12-22 14 48z"/>
+    <path fill="#9ca3af" d="m32 14-8 16h16zm20 32-6 10h12zm12-22-5 9h10z"/>
   </g>
 
-  <!-- moving hazard -->
+  <!-- 9: moving-hazard -->
   <g transform="translate(720)">
-    <path class="coral ink" d="m8 64 8-39 12 20 12-34 12 34 12-20 8 39z"/>
-    <circle class="white ink" cx="32" cy="51" r="7"/>
-    <circle class="white ink" cx="51" cy="51" r="7"/>
-    <circle class="navy" cx="34" cy="52" r="3"/>
-    <circle class="navy" cx="49" cy="52" r="3"/>
-    <path class="navy ink" d="M11 64h61v10H11z"/>
-    <path class="sky ink" fill="none" d="M8 15H1m75 0h-7M8 7 3 2m73 5 5-5"/>
+    <path class="red" stroke="#10233b" stroke-width="3" stroke-linejoin="round" d="M8 72 20 28l12 24 16-44 14 36 12-20 4 48z"/>
   </g>
 
-  <!-- microphone -->
+  <!-- 10: microphone -->
   <g transform="translate(800)">
-    <rect class="white ink" x="27" y="9" width="26" height="43" rx="13"/>
-    <path class="navy" d="M34 19h12v4H34zm0 9h12v4H34z"/>
-    <path class="ink" fill="none" stroke="#ffffff" stroke-width="4" d="M19 36c0 24 42 24 42 0M40 60v12M27 72h26"/>
+    <rect fill="#1e293b" x="28" y="10" width="24" height="42" rx="12"/>
+    <path class="white" d="M34 20h12v4H34zm0 10h12v4H34z"/>
+    <path fill="none" stroke="#1e293b" stroke-width="4" stroke-linecap="round" d="M20 36c0 24 40 24 40 0M40 58v16M28 74h24"/>
   </g>
 
-  <!-- warning -->
+  <!-- 11: warning -->
   <g transform="translate(880)">
-    <path class="gold ink" d="M40 7 75 70H5z"/>
-    <path class="navy" d="M36 27h8l-2 24h-4zm0 31h8v8h-8z"/>
-    <path class="coral ink" d="M7 70h66"/>
+    <path class="gold" stroke="#10233b" stroke-width="3" stroke-linejoin="round" d="M40 8 74 70H6z"/>
+    <path class="navy" d="M36 28h8l-2 22h-4zm0 28h8v8h-8z"/>
   </g>
 
-  <!-- grass tile -->
+  <!-- 12: grass -->
   <g transform="translate(960)">
-    <path class="teal" d="M0 20h80v60H0z"/>
-    <path class="gold" d="m0 24 8-10 7 10 9-17 8 17 9-12 8 12 9-18 8 18 8-11 7 11v56H0z"/>
-    <path class="ink" fill="none" d="M0 25h80"/>
-    <path fill="#fff4ce" opacity=".42" d="M8 38h18v5H8zm40 13h22v5H48z"/>
+    <path class="gold" d="M0 20h80v60H0z"/>
+    <path fill="#06b6d4" d="m0 20 8-16 8 16 8-16 8 16 8-16 8 16 8-16 8 16 8-16 8 16v60H0z"/>
+    <path fill="none" stroke="#10233b" stroke-width="3" d="M0 20h80"/>
   </g>
 
-  <!-- platform tile -->
+  <!-- 13: platform -->
   <g transform="translate(1040)">
-    <path fill="#a95c38" d="M0 0h80v80H0z"/>
-    <path class="ink" fill="none" d="M0 15h80M0 48h80M22 0v15m37 0v33M34 48v32"/>
-    <path fill="#d9874d" d="M7 24h28v8H7zm42 33h24v8H49z"/>
-    <path fill="#10233b" opacity=".28" d="M0 70h80v10H0z"/>
+    <rect class="brick" x="0" y="0" width="80" height="80"/>
+    <path fill="none" stroke="#451a03" stroke-width="3" d="M0 26h80M0 54h80M26 0v26m28 26v28M40 26v28"/>
+    <path fill="#b45309" d="M6 32h24v12H6zm44 6h22v12H50z"/>
   </g>
 
-  <!-- water tile -->
+  <!-- 14: water -->
   <g transform="translate(1120)">
-    <path fill="#0b54be" d="M0 24h80v56H0z"/>
-    <path fill="#3b82f6" d="M0 12c10-10 20-10 30 0s20 10 30 0 20-10 20-10v68H0z"/>
-    <path class="white" d="M0 12c10-10 20-10 30 0s20 10 30 0 20-10 20-10v8c-10-10-20-10-30 0s-20 10-30 0S10 10 0 10z"/>
+    <path class="blue" d="M0 16c10-10 20-10 30 0s20 10 30 0 20-10 20-10v74H0z"/>
   </g>
 
-  <!-- spark -->
+  <!-- 15: spark -->
   <g transform="translate(1200)">
-    <path class="gold ink" d="m40 4 8 24 24-8-17 20 17 20-24-8-8 24-8-24-24 8 17-20L8 20l24 8z"/>
-    <circle class="white" cx="40" cy="40" r="8"/>
-    <circle class="coral" cx="40" cy="40" r="4"/>
+    <path class="gold" stroke="#10233b" stroke-width="2" d="m40 4 9 24 25-9-16 19 21 16-26 3 3 26-21-16-16 21 3-26-26-3 21-16-16-19 25 9z"/>
+    <circle class="red" cx="40" cy="40" r="10"/>
   </g>
 </svg>
