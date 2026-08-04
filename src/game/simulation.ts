@@ -282,33 +282,6 @@ function isOverWater(zone: WaterInstance, chickenWorldX: number, chickenBottom: 
   );
 }
 
-function isInsideQuietZone(
-  zone: QuietZoneInstance,
-  previousWorldX: number,
-  nextWorldX: number,
-  lift: number,
-) {
-  const sweptLeft = Math.min(previousWorldX, nextWorldX) - CHICKEN_BODY_WIDTH / 2;
-  const sweptRight = Math.max(previousWorldX, nextWorldX) + CHICKEN_BODY_WIDTH / 2;
-
-  return (
-    lift > zone.maximumLift && sweptRight > zone.worldX && sweptLeft < zone.worldX + zone.width
-  );
-}
-
-function intersectsCeiling(
-  zone: QuietZoneInstance,
-  previousWorldX: number,
-  nextWorldX: number,
-  chickenY: number,
-) {
-  const sweptLeft = Math.min(previousWorldX, nextWorldX) - CHICKEN_BODY_WIDTH / 2;
-  const sweptRight = Math.max(previousWorldX, nextWorldX) + CHICKEN_BODY_WIDTH / 2;
-  const chickenTop = chickenY - CHICKEN_BODY_HEIGHT / 2;
-
-  return sweptRight > zone.worldX && sweptLeft < zone.worldX + zone.width && chickenTop <= zone.top;
-}
-
 function intersectsCollectible(
   collectible: CollectibleInstance,
   previousWorldX: number,
@@ -609,20 +582,6 @@ export class ChickenSimulation {
       }
     }
 
-    const quietZone = geometry.quietZones.find((candidate) =>
-      isInsideQuietZone(candidate, previousWorldX, chickenWorldX, intent.lift),
-    );
-    if (quietZone) {
-      return this.endRun("hazard", quietZone.id, "quiet-zone");
-    }
-
-    const ceiling = geometry.quietZones.find((candidate) =>
-      intersectsCeiling(candidate, previousWorldX, chickenWorldX, chicken.y),
-    );
-    if (ceiling) {
-      return this.endRun("hazard", `${ceiling.id}:ceiling`, "ceiling");
-    }
-
     const spike = geometry.spikes.find((candidate) =>
       intersectsSpike(candidate, previousWorldX, chickenWorldX, chicken.y),
     );
@@ -648,7 +607,7 @@ export class ChickenSimulation {
     }
 
     const chickenLeft = chickenWorldX - CHICKEN_BODY_WIDTH / 2;
-    const obstacles = [...geometry.spikes, ...geometry.quietZones, ...geometry.water];
+    const obstacles = [...geometry.spikes, ...geometry.water];
     const activeObstacleIds = new Set(obstacles.map((obstacle) => obstacle.id));
     for (const clearedId of this.clearedObstacleIds) {
       if (!activeObstacleIds.has(clearedId)) {
@@ -701,12 +660,7 @@ export class ChickenSimulation {
     return {
       activeBodies: active ? 1 : 0,
       activeTimers: 0,
-      collisionZones: active
-        ? (geometry?.spikes.length ?? 0) +
-          (geometry?.quietZones.length ?? 0) +
-          waterCollisionZones +
-          1
-        : 0,
+      collisionZones: active ? (geometry?.spikes.length ?? 0) + waterCollisionZones + 1 : 0,
       pooledObjects: active
         ? (generatedPool?.total ??
           this.platforms.length + this.spikes.length + (this.water?.length ?? 1))

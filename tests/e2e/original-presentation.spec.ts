@@ -125,13 +125,16 @@ for (const viewport of [
       "data-active-chunk-ids",
       "spike-straight,lift-terraces,stepping-rise,precision-islands-intro,meadow-hop,quiet-tunnel-intro",
     );
-    await expect(surface).toHaveAttribute("data-rendered-warnings", /[1-9]\d*/);
+    await expect(surface).toHaveAttribute("data-rendered-warnings", "0");
+    await expect(surface).toHaveAttribute("data-rendered-quiet-zones", "0");
     await expect(surface).toHaveAttribute("data-rendered-collectibles", /[1-9]\d*/);
     await expect(surface).toHaveAttribute("data-rendered-moving-hazards", "0");
+    await expect(surface).toHaveAttribute("data-active-warning-count", "3");
     await expect(surface).toHaveAttribute(
       "data-active-warning-copy",
-      /! SPIKES — PULSE.+↥ HOLD LIFT.+•• PULSE · RELEASE · PULSE.+↓ RELEASE · STAY QUIET/,
+      /! SPIKES — PULSE.+↥ HOLD LIFT.+•• PULSE · RELEASE · PULSE/,
     );
+    await expect(surface).not.toHaveAttribute("data-active-warning-copy", /STAY QUIET/);
 
     await expectWorldBandSnapshot(page, surface, `original-presentation-${viewport.name}.png`);
     expect(browserFailures).toEqual([]);
@@ -148,8 +151,9 @@ test("renders every original art role in the bounded text-only SVG atlas", async
   await expect(page.locator("svg > g")).toHaveCount(16);
   const movingHazardFrame = page.locator('svg > g[transform="translate(720)"]');
   await expect(movingHazardFrame).toHaveCount(1);
-  await expect(movingHazardFrame.locator("path")).toHaveCount(3);
-  await expect(movingHazardFrame.locator("circle")).toHaveCount(4);
+  await expect(movingHazardFrame.locator("polygon")).toHaveCount(1);
+  await expect(movingHazardFrame.locator("rect")).toHaveCount(1);
+  await expect(atlas.locator("image, script, foreignObject")).toHaveCount(0);
   await expect(atlas).toHaveScreenshot("original-game-atlas.png", {
     animations: "disabled",
     maxDiffPixelRatio: 0.01,
@@ -220,12 +224,15 @@ test("plays bounded unmuted cues and reuses the fixed particle pool", async ({ p
     .toBeGreaterThan(0);
   await expect(surface).toHaveAttribute("data-last-audio-cue", /jump|flap|land/);
 
-  await expect(surface).toHaveAttribute("data-simulation-phase", "dead", { timeout: 10_000 });
-  await expect
-    .poll(async () => Number(await surface.getAttribute("data-active-particles")), {
-      timeout: 1_000,
-    })
-    .toBeGreaterThan(0);
+  await Promise.all([
+    expect(surface).toHaveAttribute("data-simulation-phase", "dead", { timeout: 10_000 }),
+    expect
+      .poll(async () => Number(await surface.getAttribute("data-active-particles")), {
+        intervals: [50],
+        timeout: 10_000,
+      })
+      .toBeGreaterThan(0),
+  ]);
   await expect(surface).toHaveAttribute("data-last-audio-cue", "hazard");
   await expect(surface).toHaveAttribute("data-pooled-objects", "86");
   await expect

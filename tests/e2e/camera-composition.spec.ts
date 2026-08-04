@@ -90,6 +90,10 @@ async function cameraHarness(page: Page): Promise<CameraHarnessState> {
   });
 }
 
+function preferredCameraButton(page: Page) {
+  return page.getByRole("button", { name: "Camera preferred · Enable" });
+}
+
 async function expectMountedGame(page: Page) {
   const fallback = page.getByRole("button", { name: "Use keyboard or touch" });
   const start = page.getByRole("button", { name: "Start run" });
@@ -108,14 +112,16 @@ async function expectMountedGame(page: Page) {
   return surface;
 }
 
-test("camera starts disabled and never prompts before the enable gesture", async ({ page }) => {
+test("preferred camera remains disabled and never prompts before the enable gesture", async ({
+  page,
+}) => {
   await installSyntheticCamera(page, "allow");
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
 
   await expectMountedGame(page);
-  await expect(page.getByRole("button", { name: "Camera off · Enable" })).toBeEnabled();
-  await expect(page.locator("#camera-status")).toContainText("Camera off");
+  await expect(preferredCameraButton(page)).toBeEnabled();
+  await expect(page.locator("#camera-status")).toContainText("Camera is preferred");
   await expect(page.getByTestId("camera-video")).toHaveCount(0);
   expect((await cameraHarness(page)).requests).toEqual([]);
 });
@@ -128,7 +134,7 @@ test("an allowed synthetic camera is cover-fit and only its video is mirrored", 
   await page.goto("/");
   const surface = await expectMountedGame(page);
 
-  await page.getByRole("button", { name: "Camera off · Enable" }).click();
+  await preferredCameraButton(page).click();
   await expect(page.locator("#camera-status")).toContainText("Camera on");
   await expect(page.locator(".camera-toggle__icon")).toHaveText("●");
 
@@ -193,7 +199,7 @@ test("turning the camera off stops its video track without restarting play", asy
   await page.goto("/");
   const surface = await expectMountedGame(page);
 
-  await page.getByRole("button", { name: "Camera off · Enable" }).click();
+  await preferredCameraButton(page).click();
   await expect(page.getByTestId("camera-video")).toBeVisible();
   await page.getByRole("button", { name: "Camera on · Turn off" }).click();
 
@@ -269,7 +275,7 @@ test("uses one shared landscape pause and restores the portrait composition on r
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
   const surface = await expectMountedGame(page);
-  await page.getByRole("button", { name: "Camera off · Enable" }).click();
+  await preferredCameraButton(page).click();
   await expect(page.getByTestId("camera-video")).toBeVisible();
   await page.keyboard.down("Space");
 
@@ -310,7 +316,7 @@ test("synthetic camera stream stays live across repeated forced GC cycles until 
   await page.goto("/");
   await expectMountedGame(page);
 
-  await page.getByRole("button", { name: "Camera off · Enable" }).click();
+  await preferredCameraButton(page).click();
   await expect(page.locator("#camera-status")).toContainText("Camera on");
   await expect(page.getByTestId("camera-video")).toBeVisible();
   expect((await cameraHarness(page)).retainedCanvasesCount).toBe(1);

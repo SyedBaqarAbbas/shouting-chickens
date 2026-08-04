@@ -95,7 +95,7 @@ describe("PhaserGameRuntime", () => {
         audioCueCount: 0,
         audioState: "idle",
         chickenArtFrame: "",
-        collisionZones: 9,
+        collisionZones: 8,
         pooledObjects: 72,
         sceneObjects: 0,
         renderedWarnings: 0,

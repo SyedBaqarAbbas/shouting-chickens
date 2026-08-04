@@ -82,7 +82,7 @@ test("reference-phone evidence is query-gated, selectable, and strictly privacy-
   await expect(page.getByRole("heading", { name: "Reference-phone evidence" })).toBeVisible();
   await page.getByRole("button", { name: "Arm evidence capture" }).click();
   await page.getByRole("button", { name: "Return to paused run" }).click();
-  await page.getByRole("button", { name: "Camera off · Enable" }).click();
+  await page.getByRole("button", { name: "Camera preferred · Enable" }).click();
   await expect(page.locator("#camera-status")).toContainText("Camera on");
   await setSyntheticDbfs(page, -18);
   await expect
@@ -253,7 +253,7 @@ test("real media adapters calibrate voice, drive jump and lift, recover, collide
   const initialRestartToken = await numericAttribute(surface, "data-restart-token");
 
   expect((await syntheticMediaSnapshot(page)).cameraRequests).toBe(0);
-  await page.getByRole("button", { name: "Camera off · Enable" }).click();
+  await page.getByRole("button", { name: "Camera preferred · Enable" }).click();
   await expect(page.locator("#camera-status")).toContainText("permission was denied");
   await expect(surface).toHaveAttribute("data-simulation-phase", "running");
   await expect(surface).toHaveAttribute("data-configured-input", "voice");
@@ -364,7 +364,7 @@ test("camera loss keeps the same run playable and supports an explicit retry", a
   const surface = page.getByTestId("game-surface");
   await expect(surface).toHaveAttribute("data-simulation-phase", "running");
   const generation = await numericAttribute(surface, "data-run-generation");
-  await page.getByRole("button", { name: "Camera off · Enable" }).click();
+  await page.getByRole("button", { name: "Camera preferred · Enable" }).click();
   await expect(page.locator("#camera-status")).toContainText("Camera on");
 
   await loseSyntheticCamera(page);

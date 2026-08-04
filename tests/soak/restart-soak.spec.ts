@@ -2,11 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { expect, test, type Locator } from "@playwright/test";
 
-import {
-  installSyntheticMedia,
-  setSyntheticDbfs,
-  syntheticMediaSnapshot,
-} from "../release/media-harness";
+import { installSyntheticMedia, setSyntheticDbfs } from "../release/media-harness";
 import {
   HEAP_TREND_LIMIT_BYTES_PER_SAMPLE,
   linearHeapTrendBytesPerSample,
@@ -39,7 +35,7 @@ test("runs the sealed game without resource or heap growth for ten wall-clock mi
   const surface = page.getByTestId("game-surface");
   await expect(surface).toHaveAttribute("data-runtime-state", "mounted");
   await expect(surface).toHaveAttribute("data-simulation-phase", "running");
-  await page.getByRole("button", { name: "Camera off · Enable" }).click();
+  await page.getByRole("button", { name: "Camera preferred · Enable" }).click();
   await expect(page.locator("#camera-status")).toContainText("Camera on");
   await expect(surface.locator("canvas")).toHaveCount(1);
   const stable = await resources(surface);
@@ -70,6 +66,14 @@ test("runs the sealed game without resource or heap growth for ten wall-clock mi
     expect(completedRun.score).toBe(
       completedRun.survivalScore + completedRun.collectibleScore + completedRun.precisionScore,
     );
+    const completedCycle = restarts + 1;
+    if (completedCycle === 1 || completedCycle % 2 === 0) {
+      await page.requestGC();
+      const heap = await chromiumHeapBytes(surface);
+      if (heap !== null) {
+        heapSamples.push(heap);
+      }
+    }
 
     await page.getByRole("button", { name: "Restart run" }).click();
     await expect(surface).toHaveAttribute(
@@ -80,17 +84,6 @@ test("runs the sealed game without resource or heap growth for ten wall-clock mi
       "data-run-generation",
       String(completedRun.generation + 1),
     );
-    const enableCamera = page.getByRole("button", { name: "Camera preferred · Enable" });
-    if (await enableCamera.isVisible()) {
-      await enableCamera.click();
-    }
-    await expect(page.locator("#camera-status")).toContainText("Camera on");
-    const inputSamplesBeforeVoice = (await performanceDiagnostics(surface)).inputSamples;
-    await setSyntheticDbfs(page, -18);
-    await expect
-      .poll(async () => (await performanceDiagnostics(surface)).inputSamples)
-      .toBeGreaterThan(inputSamplesBeforeVoice);
-    await setSyntheticDbfs(page, -60);
     const restartedRun = await runSnapshot(surface);
     expect(restartedRun).toMatchObject({
       collisionId: "",
@@ -108,6 +101,16 @@ test("runs the sealed game without resource or heap growth for ten wall-clock mi
       restartedRun.survivalScore + restartedRun.collectibleScore + restartedRun.precisionScore,
     );
     expect(restartedRun.score).toBeLessThan(completedRun.score);
+    const inputSamplesBeforeVoice = (await performanceDiagnostics(surface)).inputSamples;
+    await setSyntheticDbfs(page, -18);
+    await expect
+      .poll(async () => (await performanceDiagnostics(surface)).inputSamples)
+      .toBeGreaterThan(inputSamplesBeforeVoice);
+    const enableCamera = page.getByRole("button", { name: "Camera preferred · Enable" });
+    if (await enableCamera.isVisible()) {
+      await enableCamera.click();
+    }
+    await expect(page.locator("#camera-status")).toContainText("Camera on");
     await expect(surface.locator("canvas")).toHaveCount(1);
     await expect
       .poll(async () => stableResourceCore(await resources(surface)))
@@ -119,14 +122,11 @@ test("runs the sealed game without resource or heap growth for ten wall-clock mi
     expect(currentResources.retainedCollisionIds).toBeLessThanOrEqual(1);
     expect(currentResources.retainedObstacleIds).toBeLessThanOrEqual(24);
     expect(currentResources.retainedPrecisionLandingIds).toBeLessThanOrEqual(16);
-    const media = await syntheticMediaSnapshot(page);
-    expect(media.cameraRequests - media.cameraStops).toBe(1);
-    expect(media.microphoneRequests - media.microphoneStops).toBe(1);
-    await page.requestGC();
-    const heap = await chromiumHeapBytes(surface);
-    if (heap !== null) {
-      heapSamples.push(heap);
-    }
+    expect(currentResources.harness.cameraRequests - currentResources.harness.cameraStops).toBe(1);
+    expect(
+      currentResources.harness.microphoneRequests - currentResources.harness.microphoneStops,
+    ).toBe(1);
+    await setSyntheticDbfs(page, -60);
     expect(runtimeErrors).toEqual([]);
     restarts += 1;
   }
@@ -218,32 +218,28 @@ async function runSnapshot(surface: Locator) {
 }
 
 async function resources(surface: Locator) {
-  const runtime = {
-    activeBodies: await requiredNumber(surface, "data-active-bodies"),
-    activeParticles: await requiredNumber(surface, "data-active-particles"),
-    activeTimers: await requiredNumber(surface, "data-active-timers"),
-    audioActiveVoices: await requiredNumber(surface, "data-audio-active-voices"),
-    audioGraphNodes: await requiredNumber(surface, "data-audio-graph-nodes"),
-    collisionZones: await requiredNumber(surface, "data-collision-zones"),
-    eventListeners: await requiredNumber(surface, "data-event-listeners"),
-    inputListeners: await requiredNumber(surface, "data-input-listeners"),
-    pooledObjects: await requiredNumber(surface, "data-pooled-objects"),
-    retainedCollectibleIds: await requiredNumber(surface, "data-retained-collectible-ids"),
-    retainedCollisionIds: await requiredNumber(surface, "data-retained-collision-ids"),
-    retainedObstacleIds: await requiredNumber(surface, "data-retained-obstacle-ids"),
-    retainedPrecisionLandingIds: await requiredNumber(
-      surface,
-      "data-retained-precision-landing-ids",
-    ),
-    sceneObjects: await requiredNumber(surface, "data-scene-objects"),
-  };
-  const media = await surface.locator("..").evaluate((element) => {
+  return surface.evaluate((element) => {
+    const requiredString = (name: string) => {
+      const raw = element.getAttribute(name);
+      if (raw === null || raw.trim() === "") {
+        throw new Error(`Missing ${name}`);
+      }
+      return raw;
+    };
+    const requiredNumber = (name: string) => {
+      const raw = requiredString(name);
+      const value = Number(raw);
+      if (!Number.isFinite(value)) {
+        throw new Error(`Invalid ${name}: ${raw}`);
+      }
+      return value;
+    };
     const root = element.closest(".experience-root");
-    const raw = root?.getAttribute("data-media-diagnostics");
-    if (!raw) {
+    const rawMedia = root?.getAttribute("data-media-diagnostics");
+    if (!rawMedia) {
       throw new Error("Missing media diagnostics");
     }
-    return JSON.parse(raw) as {
+    const media = JSON.parse(rawMedia) as {
       resources: {
         activeAudioNodes: number;
         activeCameraTracks: number;
@@ -255,11 +251,45 @@ async function resources(surface: Locator) {
         trackListeners: number;
       };
     };
+    const harness = (
+      window as typeof window & {
+        __releaseMediaHarness?: {
+          cameraRequests: number;
+          cameraStops: number;
+          microphoneRequests: number;
+          microphoneStops: number;
+        };
+      }
+    ).__releaseMediaHarness;
+    if (!harness) {
+      throw new Error("Missing release media harness");
+    }
+
+    return {
+      activeBodies: requiredNumber("data-active-bodies"),
+      activeParticles: requiredNumber("data-active-particles"),
+      activeTimers: requiredNumber("data-active-timers"),
+      audioActiveVoices: requiredNumber("data-audio-active-voices"),
+      audioGraphNodes: requiredNumber("data-audio-graph-nodes"),
+      collisionZones: requiredNumber("data-collision-zones"),
+      eventListeners: requiredNumber("data-event-listeners"),
+      inputListeners: requiredNumber("data-input-listeners"),
+      phase: requiredString("data-simulation-phase"),
+      pooledObjects: requiredNumber("data-pooled-objects"),
+      retainedCollectibleIds: requiredNumber("data-retained-collectible-ids"),
+      retainedCollisionIds: requiredNumber("data-retained-collision-ids"),
+      retainedObstacleIds: requiredNumber("data-retained-obstacle-ids"),
+      retainedPrecisionLandingIds: requiredNumber("data-retained-precision-landing-ids"),
+      sceneObjects: requiredNumber("data-scene-objects"),
+      media: media.resources,
+      harness: {
+        cameraRequests: harness.cameraRequests,
+        cameraStops: harness.cameraStops,
+        microphoneRequests: harness.microphoneRequests,
+        microphoneStops: harness.microphoneStops,
+      },
+    };
   });
-  return {
-    ...runtime,
-    media: media.resources,
-  };
 }
 
 function stableResourceCore(snapshot: Awaited<ReturnType<typeof resources>>) {
@@ -270,6 +300,7 @@ function stableResourceCore(snapshot: Awaited<ReturnType<typeof resources>>) {
     collisionZones: snapshot.collisionZones,
     eventListeners: snapshot.eventListeners,
     inputListeners: snapshot.inputListeners,
+    phase: snapshot.phase,
     media: snapshot.media,
     pooledObjects: snapshot.pooledObjects,
     sceneObjects: snapshot.sceneObjects,
@@ -302,14 +333,6 @@ async function chromiumHeapBytes(surface: Locator) {
     ).memory;
     return Number.isFinite(memory?.usedJSHeapSize) ? memory!.usedJSHeapSize! : null;
   });
-}
-
-async function requiredNumber(surface: Locator, name: string) {
-  const raw = await surface.getAttribute(name);
-  expect(raw, name).not.toBeNull();
-  const value = Number(raw);
-  expect(Number.isFinite(value), name).toBe(true);
-  return value;
 }
 
 async function completeValidCalibration(page: import("@playwright/test").Page) {

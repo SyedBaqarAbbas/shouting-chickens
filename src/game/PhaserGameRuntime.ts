@@ -681,7 +681,10 @@ export class PhaserGameRuntime implements GameRuntime, PhaserFrameHost {
     const currentChunk = generatedSnapshot?.chunks.find(
       (chunk) => chunk.chunkIndex === snapshot.currentChunkIndex,
     );
-    const currentWarnings = generatedSnapshot?.warnings.filter(
+    const activeWarnings = generatedSnapshot?.warnings.filter(
+      (warning) => warning.kind !== "release",
+    );
+    const currentWarnings = activeWarnings?.filter(
       (warning) => warning.chunkIndex === snapshot.currentChunkIndex,
     );
     this.container.dataset.currentChunkTraversal = currentChunk?.requiredCapability ?? "";
@@ -696,10 +699,8 @@ export class PhaserGameRuntime implements GameRuntime, PhaserFrameHost {
     this.container.dataset.activeChunkIds =
       generatedSnapshot?.chunks.map((chunk) => chunk.templateId).join(",") ?? "";
     this.container.dataset.activeWarningCopy =
-      generatedSnapshot?.warnings
-        .map((warning) => `${warning.symbol} ${warning.text}`)
-        .join(" | ") ?? "";
-    this.container.dataset.activeWarningCount = String(generatedSnapshot?.warnings.length ?? 0);
+      activeWarnings?.map((warning) => `${warning.symbol} ${warning.text}`).join(" | ") ?? "";
+    this.container.dataset.activeWarningCount = String(activeWarnings?.length ?? 0);
     this.container.dataset.movingHazardPhases =
       generatedSnapshot?.spikes
         .filter((spike) => spike.kind === "moving-spike")

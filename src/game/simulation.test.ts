@@ -63,6 +63,23 @@ function quietTunnelTemplate(x = 300, top = 500): ChunkTemplate {
   };
 }
 
+function offRouteSpikeTemplate(x = 300): ChunkTemplate {
+  return {
+    ...quietTunnelTemplate(x, 0),
+    id: "off-route-spike",
+    hazards: [
+      {
+        id: "high-spike",
+        kind: "spike",
+        x,
+        width: 40,
+        baseTop: 120,
+        height: 40,
+      },
+    ],
+  };
+}
+
 function generatedTunnelCourse(
   template = quietTunnelTemplate(),
   difficultyForChunk?: (chunkIndex: number) => number,
@@ -203,7 +220,7 @@ describe("ChickenSimulation", () => {
     expect(simulation.snapshot().liftStamina).toBeCloseTo(LIFT_STAMINA_RECOVERY_PER_SECOND, 8);
   });
 
-  it("rejects raw held input in a quiet zone after effective stamina lift is depleted", () => {
+  it("keeps retired quiet-zone input nonlethal after effective stamina lift is depleted", () => {
     const simulation = new ChickenSimulation({
       generatedCourse: generatedTunnelCourse(quietTunnelTemplate(650, 0)),
       playerTuning: {
@@ -222,23 +239,19 @@ describe("ChickenSimulation", () => {
     }
 
     expect(simulation.snapshot()).toMatchObject({
-      phase: "dead",
-      deathReason: "hazard",
-      collisionId: "0:stamina-tunnel:tunnel",
+      phase: "running",
+      deathReason: null,
+      collisionId: null,
       liftStamina: 0,
       effectiveLift: 0,
-    });
-    expect(simulation.drainInteractionEvents()).toContainEqual({
-      type: "hazard-collision",
-      value: {
-        id: "0:stamina-tunnel:tunnel",
-        kind: "quiet-zone",
-        tick: expect.any(Number),
+      statistics: {
+        obstaclesCleared: 0,
       },
     });
+    expect(simulation.drainInteractionEvents()).toEqual([]);
   });
 
-  it("keeps grounded tunnel traversal safe and diagnoses released ceiling impacts distinctly", () => {
+  it("keeps retired tunnel geometry nonlethal on the ground and in the air", () => {
     const safe = new ChickenSimulation({
       generatedCourse: generatedTunnelCourse(),
     });
@@ -268,7 +281,13 @@ describe("ChickenSimulation", () => {
       simulation.start();
       let jumpStarted = false;
 
-      for (let tick = 0; tick < 5_000 && simulation.snapshot().phase === "running"; tick += 1) {
+      for (
+        let tick = 0;
+        tick < 5_000 &&
+        simulation.snapshot().phase === "running" &&
+        simulation.snapshot().currentChunkIndex <= 6;
+        tick += 1
+      ) {
         const before = simulation.snapshot();
         const placement = course
           .snapshot(before.tick)
@@ -297,26 +316,22 @@ describe("ChickenSimulation", () => {
         scoreBreakdown: outcome.scoreBreakdown,
         statistics: outcome.statistics,
       });
-      expect(simulation.drainInteractionEvents()).toContainEqual({
-        type: "hazard-collision",
-        value: {
-          id: "6:stamina-tunnel:tunnel:ceiling",
-          kind: "ceiling",
-          tick: outcome.tick,
-        },
-      });
+      expect(simulation.drainInteractionEvents()).toEqual([]);
     }
 
     expect(replayedOutcomes[0]).toEqual(replayedOutcomes[1]);
     expect(replayedOutcomes[0]).toMatchObject({
-      collisionId: "6:stamina-tunnel:tunnel:ceiling",
-      deathReason: "hazard",
+      collisionId: null,
+      deathReason: null,
       difficultyStage: 2,
+      statistics: {
+        obstaclesCleared: 0,
+      },
     });
   });
 
   it("counts a safely cleared obstacle once and resets its deterministic replay", () => {
-    const course = generatedTunnelCourse(quietTunnelTemplate(300, 0));
+    const course = generatedTunnelCourse(offRouteSpikeTemplate());
     const simulation = new ChickenSimulation({ generatedCourse: course });
 
     const runTrace = () => {
